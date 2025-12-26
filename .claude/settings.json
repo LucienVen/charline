@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "defaultMode": "plan",
+    "allow": ["Read", "Grep", "LS"],
+    "deny": ["Write", "Edit", "CreateFile", "ApplyPatch"]
+  }
+}

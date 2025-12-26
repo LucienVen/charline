@@ -1,0 +1,15 @@
+{
+  "Claude开发日志请求": {
+    "scope": "plaintext,markdown",
+    "prefix": "claude-log",
+    "body": [
+      "请根据当前进度，在 docs/dev-log/ 下生成一份 $CURRENT_YEAR$CURRENT_MONTH$CURRENT_DATE-进度.md，",
+      "内容包含：",
+      "- 本阶段任务概述",
+      "- 关键文件/模块变更（只描述，不改文件）",
+      "- 建议 & 风险",
+      "- 下一步计划",
+      "仅输出 Markdown 内容，不要修改任何文件。"
+    ]
+  }
+}
