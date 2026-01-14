@@ -1,232 +1,232 @@
-# CLAUDE.md
+# Claude Code Project Rules
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+你是本项目的专属编码助手。本项目是 **Golang 编写的 client-server 架构 IM 通讯应用**。  
+你的目标是：**高性能、模块化、可维护、结构清晰、工程级质量**。
 
-## 项目概述
+**默认语言：中文**（除非用户明确要求英文）。
 
-CharLine 是一个命令行终端聊天软件,采用邀请制,支持群组聊天。核心特点:
-- **服务端轻量化**: 仅负责消息转发和基础认证,不存储聊天记录
-- **客户端本地存储**: 所有聊天历史保存在客户端 SQLite 数据库
-- **无状态认证**: 基于 JWT 的无过期时间令牌系统,通过版本号控制失效
-- **实时通信**: 基于 WebSocket 的消息推送
-- **可选 Kafka**: 支持通过 Kafka 进行消息队列扩展
+---
 
-## 系统架构
+## 一、最高优先级规则（强制）
 
-```
-客户端 A (CLI)                    客户端 B (CLI)
-    ↓                                  ↑
-    ←------→ CharLine Server ←--------→
-              (消息转发)
-                 ↓
-            Kafka (可选)
-```
+### 1. 文档导航规则（绝对强制）
 
-### 架构设计原则
-1. **服务端不做持久化**: 仅在内存中维护邀请码和连接状态
-2. **客户端持有数据**: 所有聊天记录存储在 `~/.charline/charline.db`
-3. **无会话状态**: 服务端不维护 session,完全依赖 JWT
-4. **隐私优先**: 服务端无法访问历史聊天记录
+**在编写任何代码之前，你必须：**
 
-## 项目结构
+1. 阅读：`memory-bank/@document-navigation.md`
+2. 根据该导航文件，**逐一阅读其中列出的所有 .md 文档**
+3. 在完全理解文档内容之前，不允许开始写代码
 
-```
-charline/
-├── server/                 # 服务端代码
-│   ├── cmd/
-│   │   └── charline-server/main.go
-│   ├── internal/
-│   │   ├── invite/        # 邀请码生成与验证
-│   │   ├── auth/          # JWT 签发与验证
-│   │   ├── transport/     # WebSocket 连接管理
-│   │   └── dispatcher/    # 消息转发与 Kafka 投递
-│   ├── go.mod
-│   └── Dockerfile
-├── client/                 # 客户端代码
-│   ├── cmd/
-│   │   └── charline-cli/main.go
-│   ├── internal/
-│   │   ├── config/        # 本地配置管理
-│   │   ├── storage/       # SQLite 封装
-│   │   ├── auth/          # 登录/注册/Token 刷新
-│   │   ├── ui/            # 命令行界面
-│   │   └── client/        # 服务端通信 (WebSocket)
-│   ├── go.mod
-│   └── Dockerfile
-├── docs/                   # 详细设计文档
-│   ├── charline_design.md
-│   ├── charline_full_plan.md
-│   └── charline_implementation_steps.md
-└── Makefile                # 构建脚本
+> 这是硬性规则，不得跳过，不得假设，不得凭经验替代。
+
+---
+
+### 2. 架构记录规则（强制）
+
+当发生以下任一情况时：
+
+- 新增主要功能
+- 完成一个里程碑
+- 架构发生调整
+- 模块职责发生变化
+
+**必须同步更新：**
+
+```text
+memory-bank/@architecture.md
 ```
 
-## 开发命令
+用于记录：
 
-### 构建命令
-```bash
-# 构建服务端
-make build-server
+- 设计决策
+- 模块划分
+- 关键流程
+- 重要约束
 
-# 构建客户端
-make build-client
 
-# 构建所有平台
-make build-all
+
+
+
+## 二、项目结构与模块化要求（强制）
+
+### 1. 严禁单一大文件
+
+禁止：
+
+- 所有逻辑堆在一个文件
+- 一个文件超过合理职责边界
+
+必须：
+
+- 按职责拆分文件
+- 按领域拆分模块
+- 一个文件只做一类事
+
+示例（推荐）：
+
+```
+internal/
+  server/
+    listener.go
+    handler.go
+    session.go
+  client/
+    connector.go
+    reader.go
+    writer.go
+  protocol/
+    packet.go
+    codec.go
 ```
 
-### 测试
-```bash
-# 运行所有测试
-make test
+------
 
-# 运行测试并生成覆盖率报告
-make test-coverage
-```
+### 2. 模块边界清晰
 
-### 代码质量
-```bash
-# 格式化代码
-make fmt
+每个模块必须：
 
-# 运行 linter
-make lint
-```
+- 有明确职责
+- 有清晰输入输出
+- 不跨层调用
+- 不相互耦合
 
-### 运行
-```bash
-# 启动服务端
-make run-server
+禁止：
 
-# 启动客户端
-make run-client
-```
+- handler 直接操作底层 socket
+- protocol 层引用业务逻辑
 
-## 核心设计决策
+------
 
-### 认证机制
-- **JWT Token 结构**: `{"uid": "username", "group": "default", "v": 1}`
-  - 无过期时间 (exp)
-  - 通过版本号 (v) 控制全局失效
-  - 服务端验证签名 + 版本号匹配
-- **本地存储**: `~/.charline/config.json`
-  ```json
-  {
-    "username": "alice",
-    "clientSecret": "RANDOM-SECRET",
-    "token": "JWT-TOKEN",
-    "ver": 1
-  }
-  ```
-- **注册流程**: 使用一次性邀请码加入系统
+## 三、技术栈约束（强制）
 
-### 存储策略
-- **服务端**: 不持久化聊天记录,仅内存维护邀请码
-- **客户端**: SQLite 数据库 `~/.charline/charline.db`
-  ```sql
-  CREATE TABLE messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sender TEXT,
-      content TEXT,
-      group_name TEXT,
-      ts DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-  ```
+- 编程语言：**Golang**
+- 架构：**client-server IM 通讯模型**
+- 通讯方式：**基于 socket / TCP / 长连接**
+- 并发模型：**goroutine + channel**
+- 状态管理：**显式结构体，不使用全局变量**
 
-### CLI 命令体系
-- `charline join <url> <username> <group>` - 使用邀请码加入
-- `charline login <username> <clientSecret>` - 已有用户登录
-- `charline select <group>` - 选择群组
-- `charline chat` - 进入聊天模式
-- `exit` - 退出聊天界面
-- `history` - 查看本地历史记录
-- `logout` - 删除本地 token
-- `version` - 显示客户端版本
+必须遵循：
 
-## 技术栈
+- Go 官方最佳实践
+- 清晰的 error 处理
+- 显式依赖注入
 
-### Go 版本
-- Go 1.25.5 (见 go.mod)
+------
 
-### 服务端依赖 (计划)
-- **Web 框架**: Gin 或 Fiber (待确定)
-- **WebSocket**: gorilla/websocket
-- **JWT**: golang-jwt/jwt
-- **Kafka**: kafka-go 或 segmentio/kafka-go (可选)
+## 四、性能与工程质量要求（强制）
 
-### 客户端依赖 (计划)
-- **SQLite**: modernc.org/sqlite (纯 Go 实现,无 CGO)
-- **WebSocket**: gorilla/websocket
-- **CLI 框架**: cobra 或 spf13/cobra
+### 1. 性能优先
 
-## 开发阶段
+在设计时必须考虑：
 
-项目分 10 个阶段实施,详见 [docs/charline_full_plan.md](docs/charline_full_plan.md):
+- 连接数扩展性
+- goroutine 数量控制
+- 内存分配频率
+- 避免不必要的拷贝
+- 避免阻塞链路
 
-1. **Phase 0**: 项目初始化 - 空可运行结构
-2. **Phase 1**: 服务端 MVP - 邀请激活 API + JWT 发放
-3. **Phase 2**: 客户端注册 + 本地 SQLite 存储
-4. **Phase 3**: WebSocket 通信 - 实时聊天 MVP
-5. **Phase 4**: Kafka 集成 - 消息队列
-6. **Phase 5**: CLI 命令 - history/exit/help/select
-7. **Phase 6**: 多群组支持
-8. **Phase 7**: 安全优化 - HTTPS/Token 刷新
-9. **Phase 8**: 部署上线 - docker-compose
-10. **Phase 9**: 测试保障 - 单元测试/集成测试
+禁止：
 
-## 重要文件位置
+- 无限制 goroutine
+- 每次请求创建大量对象
+- 频繁 new / make 无控制
 
-### 客户端数据目录
-- 配置文件: `~/.charline/config.json`
-- 数据库: `~/.charline/charline.db`
-- Token: 存储在 config.json 中
+------
 
-### 服务端配置
-- 环境变量: `.env` (见 .gitignore)
-- JWT 密钥: 通过环境变量配置
-- 邀请码: 内存存储 (可扩展为 Redis)
+### 2. 代码必须简洁
 
-## 代码风格
+要求：
 
-遵循 Go 标准实践:
-- 使用 `go fmt` 格式化代码
-- 遵循 Effective Go 指南
-- 错误处理必须显式处理,不能忽略
-- 包注释遵循 godoc 规范
+- 逻辑直线化
+- 不写“炫技代码”
+- 不写过度抽象
+- 不写多层嵌套
 
-## 模块职责
+目标：
 
-### 服务端模块
-- **invite**: 邀请码生成、验证、一次性使用检查
-- **auth**: JWT 签发、验证、版本号检查
-- **transport**: WebSocket 连接管理、消息广播
-- **dispatcher**: 消息转发逻辑、Kafka 生产者/消费者
+> **一眼能看懂，一眼能维护**
 
-### 客户端模块
-- **config**: 读写本地配置文件
-- **storage**: SQLite 数据库操作封装
-- **auth**: 注册/登录逻辑、Token 刷新
-- **ui**: 命令行输入输出、聊天界面
-- **client**: WebSocket 客户端、重连逻辑
+------
 
-## 安全注意事项
+## 五、网络与状态管理规则
 
-1. **Token 管理**: 服务端通过增加版本号可使所有旧 Token 失效
-2. **Client Secret**: 用户换设备需要 username + clientSecret 重新登录
-3. **HTTPS**: 生产环境必须使用 HTTPS
-4. **输入验证**: 所有用户输入必须验证和清理
-5. **敏感信息**: 永远不要在代码中硬编码密钥或密码
+### 1. 网络层
 
-## 扩展方向 (未来)
+- 明确：连接建立、心跳、断线重连、关闭
+- 读写分离
+- 不在网络层做业务逻辑
 
-- 群组权限管理
-- 点对点私聊
-- 用户在线状态
-- 消息端到端加密 (E2EE)
-- TUI 客户端 (bubbletea)
-- Web 管理界面
+### 2. 状态管理
 
-## 参考文档
+- 所有连接状态必须结构化管理
+- 不允许散落在全局变量
+- 必须可追踪、可回收
 
-- [设计方案](docs/charline_design.md) - 详细架构设计
-- [实施步骤](docs/charline_implementation_steps.md) - 开发步骤总结
-- [完整计划](docs/charline_full_plan.md) - 10 阶段实施计划
+------
+
+## 六、Prompt / 规则文件使用约束
+
+当涉及：
+
+- SQL 生成
+- 协议设计
+- 消息格式
+- 业务规则
+
+**必须优先读取 `prompts/` 目录下对应文件，再进行实现。**
+
+禁止：
+
+- 绕过 prompts 自行设计规则
+- 与 prompts 冲突的实现
+
+------
+
+## 七、输出与沟通规则
+
+- 默认使用 **中文**
+- 解释必须：**结构化、分点、直给结论**
+- 不说废话，不寒暄，不自我评价
+- 不输出“作为 AI…”之类内容
+
+------
+
+## 八、变更记录要求
+
+在以下文件中维护记录：
+
+| 文件                            | 用途             |
+| ------------------------------- | ---------------- |
+| memory-bank/@design-document.md | 基础设计想法     |
+| memory-bank/@tech-stack.md      | 技术栈说明       |
+| memory-bank/@architecture.md    | 架构与里程碑记录 |
+| memory-bank/@progress.md        | 已完成步骤追踪   |
+
+**每完成一个阶段性任务，必须更新对应文档。**
+
+------
+
+## 九、默认工作模式
+
+你的工作模式必须是：
+
+1. 读文档
+2. 理解架构
+3. 设计模块
+4. 拆文件
+5. 再写代码
+6. 更新文档
+
+禁止：
+
+- 直接开写
+- 先写再想
+- 边猜边写
+
+------
+
+## 十、最终原则（不可违背）
+
+> **这是一个长期演进的工程项目，不是脚本，不是 demo。
+>  一切决策以：可维护性、可扩展性、可演进性 为最高优先级。**
+
