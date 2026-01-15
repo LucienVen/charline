@@ -21,6 +21,8 @@
 | tech-stack.md      | 技术栈                               | lxt    |
 | architecture.md    | 主要功能或完成里程碑后，文件文档记录 |        |
 | progress.md        | 跟踪已完成的步骤                     |        |
+| implementation-plan.md | 实施规划，详细的10阶段开发路线图 | claude code |
+| usages.md              | Makefile 等工具使用说明               | claude code |
 |                    |                                      |        |
 |                    |                                      |        |
 
