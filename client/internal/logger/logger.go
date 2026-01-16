@@ -2,17 +2,17 @@ package logger
 
 import (
 	"github.com/LucienVen/charline/pkg/logger"
-	"github.com/LucienVen/charline/server/internal/config"
+	"github.com/LucienVen/charline/client/internal/config"
 	"go.uber.org/zap/zapcore"
 )
 
-// New 创建服务端日志实例
+// New 创建客户端日志实例
 func New(cfg *config.Config) (*logger.Logger, error) {
 	adapter := &configAdapter{cfg}
 	return logger.New(adapter)
 }
 
-// configAdapter 将 server.Config 适配为 logger.Config
+// configAdapter 将 client.Config 适配为 logger.Config
 type configAdapter struct {
 	*config.Config
 }

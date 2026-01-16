@@ -41,6 +41,34 @@
 
 ---
 
+### 日志抽象为公共库（2025-01-16 完成）
+
+#### 公共库
+- [x] `pkg/logger/config.go` - 通用日志配置接口
+- [x] `pkg/logger/context.go` - 请求 ID 管理
+- [x] `pkg/logger/logger.go` - 核心 Logger
+- [x] `pkg/go.mod` - pkg 模块定义
+- [x] `go.work` - Go Workspace 配置
+
+#### Server 重构
+- [x] `server/internal/logger/logger.go` - 使用 pkg/logger
+- [x] `server/internal/logger/middleware.go` - 更新 context API
+- [x] `server/internal/logger/context.go` - 删除（移至 pkg）
+- [x] `server/go.mod` - 添加 pkg 依赖（local replace）
+
+#### Client 集成
+- [x] `client/internal/config/config.go` - 客户端配置
+- [x] `client/internal/logger/logger.go` - 日志适配器
+- [x] `client/go.mod` - 添加 pkg 依赖（local replace）
+- [x] `client/cmd/main.go` - 集成日志系统
+
+#### 验证
+- [x] Server 构建成功，日志正常输出
+- [x] Client 构建成功，日志正常输出
+- [x] 请求 ID 格式一致
+
+---
+
 ## 当前进行中 🚧
 
 ### Phase 1: 邀请激活系统
@@ -88,6 +116,27 @@
 - 移除未使用的导入
 - 修改 SetRequestID: `*r = *r.WithContext(ctx)`
 - 简化 Logger 结构，移除 sugar 字段
+
+### 2025-01-16 Logger 抽象为公共库
+**任务**: 将 server/internal/logger 抽象为 pkg/logger
+
+**变更**:
+- 创建 `pkg/logger` 公共库
+- 定义 `logger.Config` 接口
+- Server 和 Client 分别实现配置适配器
+- 使用 `go.work` 管理多模块
+- 使用 `replace` 指令引用本地 pkg
+
+**验证**:
+```bash
+# Server 日志
++0800 2026-01-16 09:50:05	INFO	cmd/main.go:35	Server starting	{"address": ":8080", "env": "development", "log_level": "info"}
++0800 2026-01-16 09:50:05	INFO	logger/middleware.go:38	HTTP request	{"method": "GET", "path": "/health", "status": 200, "duration_id": "req-f1369d9282942488", "ip": "127.0.0.1:59043"}
+
+# Client 日志
++0800 2026-01-16 09:50:16	INFO	cmd/main.go:29	Client starting	{"env": "development", "log_level": "info"}
++0800 2026-01-16 09:50:16	INFO	cmd/main.go:43	Hello command executed
+```
 
 ---
 

@@ -4,20 +4,22 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/LucienVen/charline/pkg/logger"
 	"go.uber.org/zap"
 )
 
 // RequestLogger HTTP 请求日志中间件
-func RequestLogger(logger *Logger) func(http.Handler) http.Handler {
+func RequestLogger(log *logger.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 
 			// 生成请求 ID
-			requestID := GetRequestID(r)
+			requestID := logger.GetRequestID(r.Context())
 			if requestID == "" {
-				requestID = GenerateRequestID()
-				SetRequestID(r, requestID)
+				requestID = logger.GenerateRequestID()
+				ctx := logger.SetRequestID(r.Context(), requestID)
+				r = r.WithContext(ctx)
 			}
 
 			// 创建响应记录器
@@ -33,7 +35,7 @@ func RequestLogger(logger *Logger) func(http.Handler) http.Handler {
 			duration := time.Since(start)
 
 			// 记录请求日志
-			logger.Info("HTTP request",
+			log.Info("HTTP request",
 				zap.String("method", r.Method),
 				zap.String("path", r.URL.Path),
 				zap.Int("status", recorder.statusCode),
