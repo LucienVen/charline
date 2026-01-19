@@ -20,6 +20,7 @@
   - [x] 请求日志中间件
   - [x] 请求 ID 追踪
   - [x] 开发环境彩色输出
+  - [x] 按状态码分级日志（2xx/INFO, 4xx/WARN, 5xx/ERROR）
 - [x] 优雅关闭机制
 
 #### 客户端
@@ -69,29 +70,103 @@
 
 ---
 
-## 当前进行中 🚧
+### HTTP 请求日志级别优化（2025-01-19 完成）
 
-### Phase 1: 邀请激活系统
+**变更**:
+- `server/internal/logger/middleware.go` - 根据状态码动态选择日志级别
+  - 2xx/3xx → INFO
+  - 4xx → WARN
+  - 5xx → ERROR
+
+**效果**:
+- 200 OK → INFO（蓝色）
+- 404 Not Found → WARN（黄色）
+- 500 Internal Server Error → ERROR（红色）
+
+---
+
+### Phase 1: 邀请激活系统（2025-01-19 完成）
 
 **目标**: 服务端提供邀请码激活 API，返回 JWT Token
 
-#### 待实现
-- [ ] server/internal/store/invite.go - 邀请码存储
-- [ ] server/internal/auth/jwt.go - JWT 生成/验证
-- [ ] server/internal/api/handler.go - API 处理器
+#### pkg/sqlite 公共库
+- [x] `pkg/sqlite/sqlite.go` - 数据库连接管理
+- [x] `pkg/sqlite/migrations.go` - 迁移系统（go:embed）
+- [x] `pkg/sqlite/migrations/001_init.sql` - 建表 SQL（含注释）
+- [x] `pkg/go.mod` - 添加 modernc.org/sqlite v1.34.4
+
+#### server/internal/errors 统一错误码
+- [x] `server/internal/errors/codes.go` - 错误码定义
+  - ERR_INVITE_xxx: 邀请码相关错误
+  - ERR_AUTH_xxx: JWT 认证相关错误
+  - ERR_USER_xxx: 用户相关错误
+
+#### server/internal/store 邀请码存储
+- [x] `server/internal/store/invite.go` - 邀请码业务逻辑
+  - Generate() - 生成 INV-XXXXXXXX 格式邀请码
+  - Validate() - 验证邀请码有效性
+  - Activate() - 激活邀请码
+  - IsUsed() - 检查是否已使用
+
+#### server/internal/auth JWT 认证
+- [x] `server/internal/auth/jwt.go` - JWT 生成/验证
+  - NewManager() - 创建 JWT 管理器
+  - GenerateToken() - 生成 JWT Token
+  - ValidateToken() - 验证 Token
+  - ParseTokenFromRequest() - 从请求头解析 Token
+
+#### server/internal/api HTTP 处理
+- [x] `server/internal/api/handler.go` - API 端点实现
+  - GenerateInviteCode() - POST /api/invite/generate
+  - ActivateInviteCode() - POST /api/invite/activate
+  - ValidateToken() - GET /api/validate
+
+#### 配置更新
+- [x] `server/internal/config/config.go` - 添加 JWT_SECRET、DB_PATH
+- [x] `server/.env.example` - 新增环境变量模板
+- [x] `server/cmd/main.go` - 集成所有模块
 
 #### API 端点
-- [ ] POST /api/invite/generate - 生成邀请码
-- [ ] POST /api/invite/activate - 激活邀请码
-- [ ] GET /api/validate - 验证 Token
+- [x] POST /api/invite/generate - 生成邀请码
+- [x] POST /api/invite/activate - 激活邀请码，返回 JWT Token
+- [x] GET /api/validate - 验证 Token
+
+#### 依赖
+- [x] modernc.org/sqlite v1.34.4 - 纯 Go SQLite 实现
+- [x] github.com/golang-jwt/jwt v5.3.0 - JWT 认证
+
+#### 测试验证
+```bash
+# 生成邀请码
+curl -X POST http://localhost:8080/api/invite/generate
+# {"code":"INV-XCJGURX8"}
+
+# 激活邀请码
+curl -X POST http://localhost:8080/api/invite/activate \
+  -H "Content-Type: application/json" \
+  -d '{"code":"INV-XCJGURX8","username":"alice"}'
+# {"token":"eyJhbG...","version":1}
+
+# 验证 Token
+curl http://localhost:8080/api/validate \
+  -H "Authorization: Bearer eyJhbG..."
+# {"valid":true,"username":"alice"}
+```
+
+---
+
+## 当前进行中 🚧
+
+暂无
 
 ---
 
 ## 待办事项 📋
 
 ### Phase 2: 客户端注册与存储
-- [ ] client/internal/store/sqlite.go - SQLite 存储
+- [ ] client/internal/store/sqlite.go - SQLite 存储（复用 pkg/sqlite）
 - [ ] client/internal/commands/register.go - /join 命令
+- [ ] 客户端配置管理
 
 ### Phase 3: WebSocket 基础通信
 - [ ] server/internal/websocket/pool.go - 连接池
@@ -127,23 +202,38 @@
 - 使用 `go.work` 管理多模块
 - 使用 `replace` 指令引用本地 pkg
 
-**验证**:
-```bash
-# Server 日志
-+0800 2026-01-16 09:50:05	INFO	cmd/main.go:35	Server starting	{"address": ":8080", "env": "development", "log_level": "info"}
-+0800 2026-01-16 09:50:05	INFO	logger/middleware.go:38	HTTP request	{"method": "GET", "path": "/health", "status": 200, "duration_id": "req-f1369d9282942488", "ip": "127.0.0.1:59043"}
+### 2025-01-19 HTTP 请求日志级别优化
+**问题**: 访问不存在的路径返回 404，但日志仍使用 INFO 级别
 
-# Client 日志
-+0800 2026-01-16 09:50:16	INFO	cmd/main.go:29	Client starting	{"env": "development", "log_level": "info"}
-+0800 2026-01-16 09:50:16	INFO	cmd/main.go:43	Hello command executed
+**解决**: 根据 HTTP 状态码动态选择日志级别
+- 2xx/3xx → INFO
+- 4xx → WARN
+- 5xx → ERROR
+
+### 2025-01-19 Phase 1 邀请激活系统实现
+**技术选型**:
+- SQLite: 轻量级，适合 2核2G 服务器
+- pkg/sqlite: Server 和 Client 共用
+- 统一错误码: ERR_模块_具体错误 格式
+
+**架构分层**:
 ```
+Handler (HTTP 处理)
+    ↓
+Store (业务逻辑)
+    ↓
+SQLite (数据访问)
+```
+
+**遇到的问题**:
+- logger.String/Int 方法不存在 → 改用 zap.String/zap.Int
+- main.go 导入路径错误 → 使用 serverlogger 别名
+- 配置验证失败 → 确保设置环境变量
 
 ---
 
 ## 下一步行动
 
-1. 实现 Phase 1 邀请激活系统
-2. 添加 golang-jwt 依赖
-3. 实现邀请码存储（内存）
-4. 实现 JWT 生成与验证
-5. 实现 API 端点
+1. Phase 2: 客户端注册与存储
+2. 实现 /join 命令
+3. 客户端使用 pkg/sqlite 存储用户凭证
