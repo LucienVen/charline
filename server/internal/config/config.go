@@ -15,6 +15,8 @@ type Config struct {
 	LogLevel  string // 日志级别: debug | info | warn | error
 	LogFormat string // 日志格式: console | json
 	Port      int    // 服务器端口
+	JWTSecret string // JWT 签名密钥
+	DBPath    string // 数据库文件路径
 }
 
 // Load 从环境变量加载配置
@@ -24,6 +26,8 @@ func Load() (*Config, error) {
 		LogLevel:  getEnv("LOG_LEVEL", "info"),
 		LogFormat: getEnv("LOG_FORMAT", "console"),
 		Port:      getEnvAsInt("SERVER_PORT", 8080),
+		JWTSecret: getEnv("JWT_SECRET", ""),
+		DBPath:    getEnv("DB_PATH", "./data/charline.db"),
 	}
 
 	// 验证配置
@@ -54,6 +58,14 @@ func (c *Config) Validate() error {
 	// 验证端口
 	if c.Port < 1 || c.Port > 65535 {
 		return fmt.Errorf("无效的端口号: %d", c.Port)
+	}
+
+	// 验证 JWT 密钥
+	if c.JWTSecret == "" {
+		return fmt.Errorf("JWT_SECRET 不能为空")
+	}
+	if len(c.JWTSecret) < 32 {
+		return fmt.Errorf("JWT_SECRET 长度不足（至少32字节）")
 	}
 
 	return nil
@@ -88,6 +100,25 @@ func (c *Config) GetZapLevel() zapcore.Level {
 // GetAddress 获取服务器监听地址
 func (c *Config) GetAddress() string {
 	return fmt.Sprintf(":%d", c.Port)
+}
+
+// GetJWTSecret 获取 JWT 密钥
+func (c *Config) GetJWTSecret() string {
+	return c.JWTSecret
+}
+
+// GetDBConfig 获取数据库配置
+func (c *Config) GetDBConfig() DBConfig {
+	return DBConfig{
+		DataDir: "./data",
+		Name:    "charline.db",
+	}
+}
+
+// DBConfig 数据库配置
+type DBConfig struct {
+	DataDir string // 数据目录
+	Name    string // 数据库文件名
 }
 
 // getEnv 获取环境变量，如果不存在则返回默认值

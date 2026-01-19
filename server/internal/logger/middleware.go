@@ -34,15 +34,39 @@ func RequestLogger(log *logger.Logger) func(http.Handler) http.Handler {
 			// 计算耗时
 			duration := time.Since(start)
 
-			// 记录请求日志
-			log.Info("HTTP request",
-				zap.String("method", r.Method),
-				zap.String("path", r.URL.Path),
-				zap.Int("status", recorder.statusCode),
-				zap.Float64("duration_ms", float64(duration.Milliseconds())),
-				zap.String("request_id", requestID),
-				zap.String("ip", getClientIP(r)),
-			)
+			// 根据状态码选择日志级别
+			// 2xx/3xx -> INFO (正常)
+			// 4xx -> WARN (客户端错误)
+			// 5xx -> ERROR (服务器错误)
+			switch {
+			case recorder.statusCode >= 500:
+				log.Error("HTTP request",
+					zap.String("method", r.Method),
+					zap.String("path", r.URL.Path),
+					zap.Int("status", recorder.statusCode),
+					zap.Float64("duration_ms", float64(duration.Milliseconds())),
+					zap.String("request_id", requestID),
+					zap.String("ip", getClientIP(r)),
+				)
+			case recorder.statusCode >= 400:
+				log.Warn("HTTP request",
+					zap.String("method", r.Method),
+					zap.String("path", r.URL.Path),
+					zap.Int("status", recorder.statusCode),
+					zap.Float64("duration_ms", float64(duration.Milliseconds())),
+					zap.String("request_id", requestID),
+					zap.String("ip", getClientIP(r)),
+				)
+			default:
+				log.Info("HTTP request",
+					zap.String("method", r.Method),
+					zap.String("path", r.URL.Path),
+					zap.Int("status", recorder.statusCode),
+					zap.Float64("duration_ms", float64(duration.Milliseconds())),
+					zap.String("request_id", requestID),
+					zap.String("ip", getClientIP(r)),
+				)
+			}
 		})
 	}
 }
