@@ -141,8 +141,8 @@
 | Web 框架 | go-chi/chi/v5 | v5.2.4 | ✅ 已集成 |
 | 配置 | - | - | ✅ 已实现 |
 | WebSocket | gorilla/websocket | - | ⏳ 待集成 |
-| JWT | golang-jwt/jwt | - | ⏳ 待集成 |
-| SQLite | modernc.org/sqlite | - | ⏳ 待集成 |
+| JWT | golang-jwt/jwt | v5.3.0 | ✅ 已集成 |
+| SQLite | modernc.org/sqlite | v1.34.4 | ✅ 已集成 |
 
 ---
 
@@ -220,3 +220,14 @@
 - [ ] **进行中**: Phase 1 - 邀请激活系统
 - [ ] **待定**: Phase 2 - 客户端注册
 - [ ] **待定**: Phase 3 - WebSocket 通信
+
+### 数据存储决策
+- **选择**: Server 和 Client 各自独立数据目录
+- **结构**:
+  - `server/data/server.db` - 服务端邀请码、用户数据
+  - `client/data/client.db` - 客户端凭证、聊天历史
+- **理由**:
+  - 架构清晰，server/client 是独立进程
+  - 数据隔离，互不干扰
+  - 便于部署和备份
+  - 数据库文件不入版本控制

@@ -27,7 +27,7 @@ func Load() (*Config, error) {
 		LogFormat: getEnv("LOG_FORMAT", "console"),
 		Port:      getEnvAsInt("SERVER_PORT", 8080),
 		JWTSecret: getEnv("JWT_SECRET", ""),
-		DBPath:    getEnv("DB_PATH", "./data/charline.db"),
+		DBPath:    getEnv("DB_PATH", "server/data/server.db"),
 	}
 
 	// 验证配置
@@ -110,8 +110,8 @@ func (c *Config) GetJWTSecret() string {
 // GetDBConfig 获取数据库配置
 func (c *Config) GetDBConfig() DBConfig {
 	return DBConfig{
-		DataDir: "./data",
-		Name:    "charline.db",
+		DataDir: "server/data",
+		Name:    "server.db",
 	}
 }
 

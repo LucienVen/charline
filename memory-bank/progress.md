@@ -237,3 +237,32 @@ SQLite (数据访问)
 1. Phase 2: 客户端注册与存储
 2. 实现 /join 命令
 3. 客户端使用 pkg/sqlite 存储用户凭证
+
+---
+
+### 目录结构优化（2025-01-21 完成）
+
+**问题**:
+- 根目录 `data/` 有歧义（无法区分是 server 还是 client 的数据）
+- SQLite 数据库文件不应上传到远程仓库
+
+**变更**:
+- `data/charline.db` → `server/data/server.db`
+- 新建 `client/data/` 目录（空，为 Phase 2 准备）
+- 更新 `server/internal/config/config.go` 默认路径
+
+**.gitignore 更新**:
+```gitignore
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Data directories
+server/data/
+client/data/
+```
+
+**配置路径更新**:
+- `DBPath` 默认值: `server/data/server.db`
+- `GetDBConfig()` 返回: `server/data/server.db`

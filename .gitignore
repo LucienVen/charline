@@ -34,3 +34,16 @@ go.work.sum
 bin/*
 
 nimbalyst-local/
+.idea/
+*.out
+coverage.out
+coverage.html
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Data directories
+server/data/
+client/data/
