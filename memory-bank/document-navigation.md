@@ -23,7 +23,7 @@
 | progress.md        | 跟踪已完成的步骤                     |        |
 | implementation-plan.md | 实施规划，详细的10阶段开发路线图 | claude code |
 | usages.md              | Makefile 等工具使用说明               | claude code |
-|                    |                                      |        |
+| charline_jwt_ed25519_auth.md | CharLine 认证方案总结：JWT + Ed25519 私钥签名 | lxt |
 |                    |                                      |        |
 
 
