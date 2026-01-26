@@ -465,3 +465,32 @@ router.NewRouter()
 ```
 
 ---
+
+### 2025-01-26: 配置文件项目根目录检测
+
+**背景**:
+- 从不同目录运行时，SQLite 数据库路径可能不正确
+- client 和 server 需要统一的路径解析机制
+
+**变更**:
+- 添加 `findProjectRoot()` 函数，通过向上查找 `go.work` 确定项目根目录
+- DB_PATH 配置支持完整路径，默认为相对路径
+- GetDBConfig() 从完整路径解析 DataDir 和 Name
+
+**配置优先级**:
+```
+1. DB_PATH 环境变量（完整路径）→ 最高优先级
+2. <projectRoot>/server/data/server.db → 默认值
+```
+
+**代码示例**:
+```go
+// 从完整路径解析
+func (c *Config) GetDBConfig() DBConfig {
+    dir := filepath.Dir(c.DBPath)   // server/data
+    name := filepath.Base(c.DBPath) // server.db
+    return DBConfig{DataDir: dir, Name: name}
+}
+```
+
+---

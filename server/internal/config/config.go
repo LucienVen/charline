@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -17,7 +18,7 @@ type Config struct {
 	LogFormat string // 日志格式: console | json
 	Port      int    // 服务器端口
 	JWTSecret string // JWT 签名密钥
-	DBPath    string // 数据库文件路径
+	DBPath    string // 数据库文件路径（完整路径）
 }
 
 // Load 从环境变量加载配置
@@ -27,13 +28,17 @@ func Load() (*Config, error) {
 	_ = godotenv.Load()
 	_ = godotenv.Load("../../.env")
 
+	// 获取项目根目录
+	projectRoot := findProjectRoot()
+
 	cfg := &Config{
 		Env:       getEnv("ENV", "development"),
 		LogLevel:  getEnv("LOG_LEVEL", "info"),
 		LogFormat: getEnv("LOG_FORMAT", "console"),
 		Port:      getEnvAsInt("SERVER_PORT", 8080),
 		JWTSecret: getEnv("JWT_SECRET", ""),
-		DBPath:    getEnv("DB_PATH", "server/data/server.db"),
+		// DB_PATH 优先使用环境变量，否则使用基于项目根目录的路径
+		DBPath: getEnv("DB_PATH", filepath.Join(projectRoot, "server/data/server.db")),
 	}
 
 	// 验证配置
@@ -115,9 +120,13 @@ func (c *Config) GetJWTSecret() string {
 
 // GetDBConfig 获取数据库配置
 func (c *Config) GetDBConfig() DBConfig {
+	// 从完整路径中解析目录和文件名
+	dir := filepath.Dir(c.DBPath)
+	name := filepath.Base(c.DBPath)
+
 	return DBConfig{
-		DataDir: "server/data",
-		Name:    "server.db",
+		DataDir: dir,
+		Name:    name,
 	}
 }
 
@@ -125,6 +134,31 @@ func (c *Config) GetDBConfig() DBConfig {
 type DBConfig struct {
 	DataDir string // 数据目录
 	Name    string // 数据库文件名
+}
+
+// findProjectRoot 查找项目根目录（包含 go.work 文件的目录）
+func findProjectRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+
+	// 向上查找 go.work 文件
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.work")); err == nil {
+			return dir
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// 到达根目录，返回当前目录
+			break
+		}
+		dir = parent
+	}
+
+	// 找不到 go.work，返回当前目录
+	return "."
 }
 
 // getEnv 获取环境变量，如果不存在则返回默认值

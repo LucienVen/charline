@@ -495,3 +495,51 @@ main.go (91行)
 ```
 
 ---
+
+### 配置文件项目根目录检测（2025-01-26 完成）
+
+**问题**:
+- DB_PATH 配置在从不同目录运行时路径不正确
+- client 和 server 的数据目录路径需要统一基于项目根目录
+
+**变更**:
+- [x] `client/internal/config/config.go` - 添加 `GetProjectRoot()` 和 `findProjectRoot()`
+- [x] `server/internal/config/config.go` - 添加 `findProjectRoot()`，优化 DB_PATH 配置
+- [x] `GetDBConfig()` 改为从完整路径解析目录和文件名
+
+**技术实现**:
+- 向上查找 `go.work` 文件确定项目根目录
+- DB_PATH 环境变量支持完整路径配置
+- 默认值使用相对路径：`<projectRoot>/server/data/server.db`
+
+**配置优先级**:
+1. `DB_PATH` 环境变量（完整路径）
+2. 默认值：基于项目根目录的相对路径
+
+**代码示例**:
+```go
+// findProjectRoot 实现
+func findProjectRoot() string {
+    dir, _ := os.Getwd()
+    for {
+        if _, err := os.Stat(filepath.Join(dir, "go.work")); err == nil {
+            return dir
+        }
+        parent := filepath.Dir(dir)
+        if parent == dir {
+            break
+        }
+        dir = parent
+    }
+    return "."
+}
+
+// GetDBConfig 从完整路径解析
+func (c *Config) GetDBConfig() DBConfig {
+    dir := filepath.Dir(c.DBPath)
+    name := filepath.Base(c.DBPath)
+    return DBConfig{DataDir: dir, Name: name}
+}
+```
+
+---

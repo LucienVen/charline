@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -81,6 +82,36 @@ func (c *Config) GetZapLevel() zapcore.Level {
 	default:
 		return zapcore.InfoLevel
 	}
+}
+
+// GetProjectRoot 获取项目根目录
+func (c *Config) GetProjectRoot() string {
+	return findProjectRoot()
+}
+
+// findProjectRoot 查找项目根目录（包含 go.work 文件的目录）
+func findProjectRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+
+	// 向上查找 go.work 文件
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.work")); err == nil {
+			return dir
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// 到达根目录，返回当前目录
+			break
+		}
+		dir = parent
+	}
+
+	// 找不到 go.work，返回当前目录
+	return "."
 }
 
 // getEnv 获取环境变量，如果不存在则返回默认值
