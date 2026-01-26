@@ -266,3 +266,232 @@ client/data/
 **配置路径更新**:
 - `DBPath` 默认值: `server/data/server.db`
 - `GetDBConfig()` 返回: `server/data/server.db`
+
+---
+
+### 错误码和响应结构重构（2025-01-22 完成）
+
+**问题**: 
+- 原有 `api/handler.go` 文件过大，职责不清晰
+- 错误响应缺少详细信息，用户无法知道具体错误原因
+- 缺少 Controller-Service 分层架构
+
+**变更**:
+
+#### 1. 错误码数字化（按语义分段）
+```
+0     - 成功
+1xxx  - 参数/请求错误
+2xxx  - 资源相关错误
+3xxx  - 认证/授权错误
+5xxx  - 系统内部错误
+```
+
+#### 2. 统一响应结构
+```go
+type Response struct {
+    Code    int         `json:"code"`
+    Message string      `json:"message"`
+    Data    interface{} `json:"data,omitempty"`
+}
+```
+
+#### 3. BizError 详细错误信息增强
+```go
+type BizError struct {
+    Code    int
+    Message string
+    Details map[string]interface{} // 详细信息
+    cause   error                 // 原始错误（用于日志）
+}
+
+// 链式调用方法
+func (e *BizError) WithDetail(key string, value interface{}) *BizError
+func (e *BizError) WithDetails(details map[string]interface{}) *BizError
+func (e *BizError) WrapError(cause error) *BizError
+func (e *BizError) GetCause() error
+func (e *BizError) GetDetailedMsg() string
+```
+
+#### 4. 目录结构重构
+```
+server/internal/
+├── controller/           # 新增：Controller 层（原 api）
+│   ├── invite_controller.go
+│   ├── auth_controller.go
+│   └── response.go
+├── service/              # 新增：Service 层（业务逻辑）
+│   ├── invite_service.go
+│   └── auth_service.go
+├── store/                # 保留：数据访问层
+│   └── invite.go         # 修改：返回 *errors.BizError
+├── auth/                 # 保留：JWT 工具层
+│   └── jwt.go            # 修改：返回 *errors.BizError
+└── errors/               # 扩展：错误码系统
+    └── codes.go          # 修改：新增 Details 字段和链式方法
+```
+
+#### 5. 分层架构
+```
+Controller (controller/)  →  请求/响应解析，调用 Service
+         ↓
+Service (service/)        →  业务逻辑编排，调用 Store/Auth
+         ↓
+Store/Auth (store/auth/)  →  数据访问、JWT 处理
+```
+
+#### 6. 响应格式示例
+
+**无详细信息时（现有）**：
+```json
+{
+    "code": 1003,
+    "message": "用户名格式无效"
+}
+```
+
+**有详细信息时（新）**：
+```json
+{
+    "code": 1003,
+    "message": "用户名格式无效",
+    "data": {
+        "reason": "用户名长度必须在 3-20 字符之间",
+        "field": "username",
+        "provided": "ab",
+        "length": 2,
+        "min_length": 3,
+        "max_length": 20
+    }
+}
+```
+
+#### 7. 关键文件变更
+| 文件 | 操作 |
+| --- | --- |
+| server/internal/errors/codes.go | 扩展 BizError 结构，新增链式方法 |
+| server/internal/controller/response.go | 统一响应结构，处理 Details |
+| server/internal/controller/invite_controller.go | 新建，从 handler.go 迁移 |
+| server/internal/controller/auth_controller.go | 新建，从 handler.go 迁移 |
+| server/internal/service/invite_service.go | 新建，业务逻辑层 |
+| server/internal/service/auth_service.go | 新建，认证业务逻辑 |
+| server/internal/store/invite.go | 修改，返回 *errors.BizError |
+| server/internal/auth/jwt.go | 修改，返回 *errors.BizError |
+| server/cmd/main.go | 修改，集成新架构 |
+| server/internal/api/ | 删除，重命名为 controller |
+
+#### 8. 使用示例
+```go
+// Controller 层手动添加详细信息
+if len(req.Username) < 3 {
+    bizErr := apperrors.ErrInvalidUsername.
+        WithDetail("reason", "用户名长度必须在 3-20 字符之间").
+        WithDetail("field", "username").
+        WithDetail("provided", req.Username).
+        WithDetail("length", len(req.Username))
+    RespondError(w, bizErr)
+    return
+}
+
+// Service 层包装底层错误（用于日志）
+if err := db.Exec(...); err != nil {
+    return "", 0, errors.ErrSystemError.
+        WrapError(err).
+        WithDetail("operation", "invite_activate")
+}
+```
+
+#### 9. 向后兼容性
+- 现有预定义错误无需修改，继续正常工作
+- 无 Details 时响应格式保持不变
+- 所有现有 API 端点路径不变
+
+---
+
+### 依赖注入容器 + 路由模块化（2025-01-26 完成）
+
+**变更内容**:
+
+#### 1. 新增 container 依赖注入容器
+- [x] `server/internal/container/container.go`
+  - `NewContainer()` - 组装所有依赖
+  - 返回包含所有 Controllers 的容器结构
+
+#### 2. 新增 router 路由模块
+- [x] `server/internal/router/router.go`
+  - `NewRouter()` - 创建并配置路由
+  - 支持路由分组：`/api/v1/*`
+  - 支持全局中间件配置
+  - 开发环境自动打印路由列表
+
+#### 3. 配置管理改进
+- [x] `server/internal/config/config.go` - 添加 godotenv 加载
+- [x] `client/internal/config/config.go` - 添加 godotenv 加载
+- [x] 多路径查找：当前目录 `.env` → 项目根目录 `.env`
+
+#### 4. main.go 简化
+- [x] 从 118 行简化至 91 行
+- [x] 使用 container.NewContainer() 组装依赖
+- [x] 使用 router.NewRouter() 构建路由
+
+#### 5. 依赖更新
+- [x] `github.com/joho/godotenv v1.5.1` - .env 文件加载
+
+#### 6. API 路由变更
+| 旧路由 | 新路由 |
+| --- | --- |
+| `/api/invite/generate` | `/api/v1/invite/generate` |
+| `/api/invite/activate` | `/api/v1/invite/activate` |
+| `/api/validate` | `/api/v1/validate` |
+| `/health` | `/health`（不变） |
+
+#### 7. 目录结构变更
+```
+server/internal/
+├── container/           # 新增
+│   └── container.go
+├── router/              # 新增
+│   └── router.go
+├── controller/          # 保留
+├── service/             # 保留
+├── store/               # 保留
+├── auth/                # 保留
+├── errors/              # 保留
+├── config/              # 修改（支持 .env）
+└── logger/              # 保留
+```
+
+#### 8. 架构改进
+**职责分离**:
+- `container`: 依赖组装
+- `router`: 路由配置
+- `main`: 启动流程编排
+
+**依赖关系**:
+```
+main.go (91行)
+    ├─ config.Load()
+    ├─ logger.New()
+    ├─ sqlite.New()
+    ├─ container.NewContainer()  ← 新增
+    │   ├─ jwtManager
+    │   ├─ store
+    │   ├─ services
+    │   └─ controllers
+    └─ router.NewRouter()         ← 更新
+        └─ Controllers
+            ├─ Invite
+            └─ Auth
+```
+
+#### 9. 测试验证
+```bash
+# 服务启动成功，路由打印正常
+=== Registered Routes ===
+  POST   /api/v1/invite/activate
+  POST   /api/v1/invite/generate
+  GET    /api/v1/validate
+  GET    /health
+```
+
+---

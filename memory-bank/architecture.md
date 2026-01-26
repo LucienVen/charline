@@ -136,7 +136,7 @@
 ## 技术栈
 
 | 功能 | 库 | 版本 | 状态 |
-|------|-----|------|------|
+| --- | --- | --- | --- |
 | 日志 | uber-go/zap | v1.27.1 | ✅ 已集成 |
 | Web 框架 | go-chi/chi/v5 | v5.2.4 | ✅ 已集成 |
 | 配置 | - | - | ✅ 已实现 |
@@ -231,3 +231,237 @@
   - 数据隔离，互不干扰
   - 便于部署和备份
   - 数据库文件不入版本控制
+
+---
+
+## 架构演进记录
+
+### 2025-01-22: Controller-Service-Store 三层架构重构
+
+**背景**: 
+- 原 `api/handler.go` 职责过重，包含 HTTP 处理、业务逻辑、数据访问
+- 错误响应缺少详细信息，用户体验不佳
+- 缺少清晰的分层架构
+
+**新架构**:
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Server (重构后)                         │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │  Controller  │  │   Service    │  │    Store     │      │
+│  │  HTTP 处理   │  │   业务逻辑   │  │   数据访问   │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │    errors/   │  │    auth/     │  │    Config    │      │
+│  │  错误码系统  │  │    JWT       │  │   日志配置   │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**模块职责**:
+
+| 层级 | 模块 | 职责 |
+| --- | --- | --- |
+| Controller | `controller/` | 请求/响应解析，参数验证，调用 Service |
+| Service | `service/` | 业务逻辑编排，事务管理，调用 Store/Auth |
+| Store | `store/` | 数据访问（SQLite），CRUD 操作 |
+| Auth | `auth/` | JWT 生成/验证，Token 管理 |
+| Errors | `errors/` | 错误码定义，BizError 结构，链式调用 |
+
+**错误处理设计**:
+```go
+// BizError 结构
+type BizError struct {
+    Code    int                    // 数字化错误码
+    Message string                 // 用户友好消息
+    Details map[string]interface{} // 详细错误信息（可选）
+    cause   error                  // 底层错误（用于日志）
+}
+
+// 链式调用示例
+ErrInvalidUsername.
+    WithDetail("reason", "用户名长度必须在 3-20 字符之间").
+    WithDetail("field", "username").
+    WithDetail("provided", "ab")
+```
+
+**响应格式**:
+```json
+{
+    "code": 1003,
+    "message": "用户名格式无效",
+    "data": {
+        "reason": "用户名长度必须在 3-20 字符之间",
+        "field": "username",
+        "provided": "ab",
+        "length": 2,
+        "min_length": 3,
+        "max_length": 20
+    }
+}
+```
+
+**目录结构变更**:
+```
+server/internal/
+├── controller/           # 新增：HTTP 处理层
+│   ├── invite_controller.go
+│   ├── auth_controller.go
+│   └── response.go       # 统一响应结构
+├── service/              # 新增：业务逻辑层
+│   ├── invite_service.go
+│   └── auth_service.go
+├── store/                # 修改：数据访问层
+│   └── invite.go         # 返回 *errors.BizError
+├── auth/                 # 修改：JWT 工具层
+│   └── jwt.go            # 返回 *errors.BizError
+├── errors/               # 扩展：错误码系统
+│   └── codes.go          # 新增 Details、链式方法
+├── config/               # 保留：配置管理
+├── logger/               # 保留：日志适配器
+└── api/                  # 删除：已重命名为 controller
+```
+
+**错误码分段**:
+```
+0     - 成功
+1xxx  - 参数/请求错误（1001: 无效参数, 1002: JSON错误, 1003: 用户名无效）
+2xxx  - 资源相关错误（2001: 邀请码不存在, 2002: 邀请码已使用）
+3xxx  - 认证/授权错误（3001: 未授权, 3002: Token过期）
+5xxx  - 系统内部错误（5000: 系统错误）
+```
+
+**向后兼容性**:
+- 预定义错误无需修改，继续正常工作
+- 无 Details 时响应格式保持不变
+- API 端点路径不变
+
+---
+
+### 2025-01-26: 依赖注入容器 + 路由模块化
+
+**背景**:
+- main.go 中直接初始化 service/controller，代码耦合度高
+- 路由注册逻辑混在 main.go 中，不易维护
+- 缺少依赖注入容器，难以扩展
+
+**新架构**:
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Server (最新架构)                        │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │   Container  │  │    Router    │  │  Controller  │      │
+│  │  依赖注入容器 │  │  路由分组    │  │  HTTP 处理   │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │   Service    │  │    Store     │  │    Auth      │      │
+│  │  业务逻辑层  │  │   数据访问   │  │    JWT       │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**新增模块**:
+
+| 模块 | 文件 | 职责 |
+| --- | --- | --- |
+| Container | `container/container.go` | 依赖注入容器，组装所有依赖 |
+| Router | `router/router.go` | 路由注册、分组、中间件管理 |
+
+**目录结构**:
+```
+server/internal/
+├── container/                    # 新增：依赖注入容器
+│   └── container.go              # NewContainer() 返回所有 controllers
+├── router/                       # 新增：路由模块
+│   └── router.go                 # NewRouter() 支持路由分组、中间件
+├── controller/                   # 保留：HTTP 处理层
+├── service/                      # 保留：业务逻辑层
+├── store/                        # 保留：数据访问层
+├── auth/                         # 保留：JWT 工具层
+├── errors/                       # 保留：错误码系统
+├── config/                       # 保留：配置管理（支持 .env）
+└── logger/                       # 保留：日志适配器
+```
+
+**路由分组设计**:
+```
+/health                          → 健康检查（无认证）
+/api/v1/invite/generate         → POST 生成邀请码
+/api/v1/invite/activate         → POST 激活邀请码
+/api/v1/validate                → GET  验证 Token
+```
+
+**中间件架构**:
+```go
+type Routes struct {
+    Controllers *Controllers
+    Logger      *logger.Logger
+    Middlewares []func(http.Handler) http.Handler  // 全局中间件切片
+}
+
+// 使用示例
+r := router.NewRouter(&router.Routes{
+    Controllers: &router.Controllers{
+        Invite: container.InviteCtrl,
+        Auth:   container.AuthCtrl,
+    },
+    Logger: log,
+    Middlewares: []func(http.Handler) http.Handler{
+        serverlogger.RequestLogger(log),  // 可添加多个
+        // middleware.Recoverer,
+        // middleware.Timeout(60s),
+    },
+})
+```
+
+**配置管理改进**:
+- 添加 `godotenv` 支持，自动加载 `.env` 文件
+- 支持多路径查找：当前目录 `.env` → 项目根目录 `.env`
+- Server 和 Client 的 config.go 都已更新
+
+**main.go 简化**:
+```go
+// 重构前：118 行，直接初始化所有依赖
+jwtManager := auth.NewManager(...)
+inviteStore := store.NewInviteStore(...)
+inviteService := service.NewInviteService(...)
+authService := service.NewAuthService(...)
+inviteCtrl := controller.NewInviteController(...)
+authCtrl := controller.NewAuthController(...)
+
+// 重构后：91 行，通过容器组装
+container, err := container.NewContainer(cfg, db, log)
+r := router.NewRouter(&router.Routes{
+    Controllers: &router.Controllers{...},
+    Logger: log,
+    Middlewares: [...],
+})
+```
+
+**开发体验改进**:
+- 开发环境启动时自动打印注册的路由列表
+```
+=== Registered Routes ===
+  POST   /api/v1/invite/activate
+  POST   /api/v1/invite/generate
+  GET    /api/v1/validate
+  GET    /health
+```
+
+**依赖关系**:
+```
+main.go
+    ↓
+container.NewContainer()
+    ├─ auth.NewManager()
+    ├─ store.NewInviteStore()
+    ├─ service.NewInviteService()
+    ├─ service.NewAuthService()
+    ├─ controller.NewInviteController()
+    └─ controller.NewAuthController()
+    ↓
+router.NewRouter()
+    └─ 使用 Controllers 构建路由
+```
+
+---

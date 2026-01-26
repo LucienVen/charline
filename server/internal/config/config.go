@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/joho/godotenv"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -21,6 +22,11 @@ type Config struct {
 
 // Load 从环境变量加载配置
 func Load() (*Config, error) {
+	// 尝试加载 .env 文件（如果存在）
+	// 按优先级尝试：项目根目录 .env > 当前目录 .env
+	_ = godotenv.Load()
+	_ = godotenv.Load("../../.env")
+
 	cfg := &Config{
 		Env:       getEnv("ENV", "development"),
 		LogLevel:  getEnv("LOG_LEVEL", "info"),

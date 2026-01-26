@@ -2,7 +2,6 @@ package store
 
 import (
 	"database/sql"
-	"fmt"
 	"math/rand"
 	"time"
 
@@ -28,7 +27,7 @@ func NewInviteStore(db *sqlite.DB, log *logger.Logger) *InviteStore {
 
 // Generate 生成新邀请码
 // 返回格式: INV-XXXXXXXX (8位大写字母+数字，排除易混淆字符 0OI1)
-func (s *InviteStore) Generate() (string, error) {
+func (s *InviteStore) Generate() (string, *apperrors.BizError) {
 	const maxAttempts = 10
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
@@ -40,7 +39,7 @@ func (s *InviteStore) Generate() (string, error) {
 			s.logger.Error("检查邀请码失败",
 				zap.String("code", code),
 				zap.String("error", err.Error()))
-			return "", fmt.Errorf("检查邀请码失败: %w", err)
+			return "", apperrors.ErrSystemError
 		}
 
 		if !exists {
@@ -53,7 +52,7 @@ func (s *InviteStore) Generate() (string, error) {
 				s.logger.Error("插入邀请码失败",
 					zap.String("code", code),
 					zap.String("error", err.Error()))
-				return "", fmt.Errorf("插入邀请码失败: %w", err)
+				return "", apperrors.ErrSystemError
 			}
 
 			s.logger.Info("生成邀请码",
@@ -63,48 +62,24 @@ func (s *InviteStore) Generate() (string, error) {
 		}
 	}
 
-	return "", apperrors.ErrInviteGenerateFailed
-}
-
-// Validate 验证邀请码是否有效
-// 返回: (是否有效, 错误信息)
-func (s *InviteStore) Validate(code string) (bool, error) {
-	if !s.isValidFormat(code) {
-		return false, apperrors.ErrInviteInvalid
-	}
-
-	var usedAt sql.NullTime
-	err := s.db.QueryRow(
-		"SELECT used_at FROM invite_codes WHERE code = ?",
-		code,
-	).Scan(&usedAt)
-
-	if err == sql.ErrNoRows {
-		return false, apperrors.ErrInviteNotFound
-	}
-	if err != nil {
-		return false, fmt.Errorf("查询邀请码失败: %w", err)
-	}
-
-	// 如果 used_at 为 NULL，说明未使用
-	return !usedAt.Valid, nil
+	return "", apperrors.ErrSystemError
 }
 
 // Activate 激活邀请码
 // 参数: code - 邀请码, username - 用户名
-// 返回: 错误信息
-func (s *InviteStore) Activate(code, username string) error {
+// 返回: 业务错误
+func (s *InviteStore) Activate(code, username string) *apperrors.BizError {
 	if !s.isValidFormat(code) {
 		return apperrors.ErrInviteInvalid
 	}
 
 	// 检查邀请码是否存在且未使用
-	valid, err := s.Validate(code)
-	if err != nil {
-		return err
+	valid, bizErr := s.Validate(code)
+	if bizErr != nil {
+		return bizErr
 	}
 	if !valid {
-		return apperrors.ErrInviteAlreadyUsed
+		return apperrors.ErrInviteUsed
 	}
 
 	// 激活邀请码
@@ -113,7 +88,10 @@ func (s *InviteStore) Activate(code, username string) error {
 		time.Now(), username, code,
 	)
 	if err != nil {
-		return fmt.Errorf("激活邀请码失败: %w", err)
+		s.logger.Error("激活邀请码失败",
+			zap.String("code", code),
+			zap.String("error", err.Error()))
+		return apperrors.ErrSystemError
 	}
 
 	rows, _ := result.RowsAffected()
@@ -128,6 +106,33 @@ func (s *InviteStore) Activate(code, username string) error {
 	return nil
 }
 
+// Validate 验证邀请码是否有效
+// 返回: (是否有效, 业务错误)
+func (s *InviteStore) Validate(code string) (bool, *apperrors.BizError) {
+	if !s.isValidFormat(code) {
+		return false, apperrors.ErrInviteInvalid
+	}
+
+	var usedAt sql.NullTime
+	err := s.db.QueryRow(
+		"SELECT used_at FROM invite_codes WHERE code = ?",
+		code,
+	).Scan(&usedAt)
+
+	if err == sql.ErrNoRows {
+		return false, apperrors.ErrInviteNotFound
+	}
+	if err != nil {
+		s.logger.Error("查询邀请码失败",
+			zap.String("code", code),
+			zap.String("error", err.Error()))
+		return false, apperrors.ErrSystemError
+	}
+
+	// 如果 used_at 为 NULL，说明未使用
+	return !usedAt.Valid, nil
+}
+
 // Exists 检查邀请码是否存在
 func (s *InviteStore) Exists(code string) (bool, error) {
 	var count int
@@ -139,7 +144,7 @@ func (s *InviteStore) Exists(code string) (bool, error) {
 }
 
 // IsUsed 检查邀请码是否已使用
-func (s *InviteStore) IsUsed(code string) (bool, error) {
+func (s *InviteStore) IsUsed(code string) (bool, *apperrors.BizError) {
 	var usedAt sql.NullTime
 	err := s.db.QueryRow(
 		"SELECT used_at FROM invite_codes WHERE code = ?",
@@ -150,14 +155,17 @@ func (s *InviteStore) IsUsed(code string) (bool, error) {
 		return false, apperrors.ErrInviteNotFound
 	}
 	if err != nil {
-		return false, err
+		s.logger.Error("查询邀请码失败",
+			zap.String("code", code),
+			zap.String("error", err.Error()))
+		return false, apperrors.ErrSystemError
 	}
 
 	return usedAt.Valid, nil
 }
 
 // GetUserByCode 获取使用该邀请码的用户名
-func (s *InviteStore) GetUserByCode(code string) (string, error) {
+func (s *InviteStore) GetUserByCode(code string) (string, *apperrors.BizError) {
 	var username sql.NullString
 	err := s.db.QueryRow(
 		"SELECT username FROM invite_codes WHERE code = ?",
@@ -168,7 +176,10 @@ func (s *InviteStore) GetUserByCode(code string) (string, error) {
 		return "", apperrors.ErrInviteNotFound
 	}
 	if err != nil {
-		return "", err
+		s.logger.Error("查询用户名失败",
+			zap.String("code", code),
+			zap.String("error", err.Error()))
+		return "", apperrors.ErrSystemError
 	}
 
 	return username.String, nil

@@ -48,9 +48,9 @@ func (m *Manager) SetExpiration(d time.Duration) {
 // GenerateToken 生成 JWT Token
 // username: 用户名
 // version: Token 版本号（默认1）
-func (m *Manager) GenerateToken(username string, version int) (string, error) {
+func (m *Manager) GenerateToken(username string, version int) (string, *apperrors.BizError) {
 	if username == "" {
-		return "", apperrors.ErrUsernameInvalid
+		return "", apperrors.ErrInvalidUsername
 	}
 
 	now := time.Now()
@@ -70,17 +70,17 @@ func (m *Manager) GenerateToken(username string, version int) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString(m.secretKey)
 	if err != nil {
-		return "", fmt.Errorf("生成 Token 失败: %w", err)
+		return "", apperrors.ErrSystemError
 	}
 
 	return tokenString, nil
 }
 
 // ValidateToken 验证 JWT Token
-// 返回: (*Claims, error)
-func (m *Manager) ValidateToken(tokenString string) (*Claims, error) {
+// 返回: (*Claims, 业务错误)
+func (m *Manager) ValidateToken(tokenString string) (*Claims, *apperrors.BizError) {
 	if tokenString == "" {
-		return nil, apperrors.ErrTokenMalformed
+		return nil, apperrors.ErrTokenInvalid
 	}
 
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
@@ -108,21 +108,21 @@ func (m *Manager) ValidateToken(tokenString string) (*Claims, error) {
 
 // ParseTokenFromRequest 从 HTTP 请求中解析 Token
 // 从 Authorization: Bearer <token> 头部提取
-// 返回: (token string, error)
-func ParseTokenFromRequest(authHeader string) (string, error) {
+// 返回: (token string, 业务错误)
+func ParseTokenFromRequest(authHeader string) (string, *apperrors.BizError) {
 	if authHeader == "" {
-		return "", apperrors.ErrTokenMalformed
+		return "", apperrors.ErrTokenInvalid
 	}
 
 	// 检查前缀
 	const prefix = "Bearer "
 	if len(authHeader) < len(prefix) || authHeader[:len(prefix)] != prefix {
-		return "", apperrors.ErrTokenMalformed
+		return "", apperrors.ErrTokenInvalid
 	}
 
 	token := authHeader[len(prefix):]
 	if token == "" {
-		return "", apperrors.ErrTokenMalformed
+		return "", apperrors.ErrTokenInvalid
 	}
 
 	return token, nil
@@ -131,12 +131,12 @@ func ParseTokenFromRequest(authHeader string) (string, error) {
 // RefreshToken 刷新 Token（升级版本号）
 // username: 用户名
 // oldVersion: 旧 Token 版本号
-// 返回: (newToken string, newVersion int, error)
-func (m *Manager) RefreshToken(username string, oldVersion int) (string, int, error) {
+// 返回: (newtoken string, newVersion int, 业务错误)
+func (m *Manager) RefreshToken(username string, oldVersion int) (string, int, *apperrors.BizError) {
 	newVersion := oldVersion + 1
-	token, err := m.GenerateToken(username, newVersion)
-	if err != nil {
-		return "", 0, err
+	token, bizErr := m.GenerateToken(username, newVersion)
+	if bizErr != nil {
+		return "", 0, bizErr
 	}
 	return token, newVersion, nil
 }
