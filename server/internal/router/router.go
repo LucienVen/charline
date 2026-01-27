@@ -18,8 +18,8 @@ type Controllers struct {
 
 // Routes 路由依赖注入结构
 type Routes struct {
-	Controllers *Controllers                       // 控制器集合
-	Logger      *logger.Logger                     // 日志
+	Controllers *Controllers                      // 控制器集合
+	Logger      *logger.Logger                    // 日志
 	Middlewares []func(http.Handler) http.Handler // 全局中间件
 }
 
@@ -39,7 +39,7 @@ func NewRouter(routes *Routes) chi.Router {
 	r.Route("/api/v1", func(r chi.Router) {
 		// 邀请相关路由
 		r.Route("/invite", func(r chi.Router) {
-			r.Post("/generate", routes.Controllers.Invite.GenerateInviteCode)
+			r.Post("/generate", routes.Controllers.Invite.GenerateInviteCode) // TODO 加入服务器静态 ip 限制
 			r.Post("/activate", routes.Controllers.Invite.ActivateInviteCode)
 		})
 

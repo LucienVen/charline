@@ -153,20 +153,143 @@ curl http://localhost:8080/api/validate \
 # {"valid":true,"username":"alice"}
 ```
 
+
+---
+
+### Phase 2: 客户端注册与存储（2025-01-27 完成）
+
+**目标**: 实现客户端 `/join` 命令，支持 Ed25519 密钥对生成、JWT Token 存储、凭证安全管理
+
+#### 客户端新建文件
+
+- [x] `client/internal/store/paths.go` - `~/.charline/` 路径管理
+  - `GetCharlineDir()` - 返回用户数据目录
+  - `EnsurePrivateDir()` - 确保目录存在且权限正确 (700)
+  - `KeyPath()` / `KeyPubPath()` / `TokenPath()` - 密钥和 Token 路径
+
+- [x] `client/internal/auth/keypair.go` - Ed25519 密钥对管理
+  - `Generate()` - 生成 Ed25519 密钥对
+  - `Load()` - 从 `~/.charline/id_ed25519` 加载
+  - `Save()` - 保存密钥对（PEM 格式，私钥 600 权限）
+  - `PubKeyBase64()` - 返回 Base64 编码公钥
+
+- [x] `client/internal/store/credential.go` - 凭证存储
+  - `SaveToken()` / `LoadToken()` - JWT Token 读写
+  - `SaveCredential()` / `LoadCredential()` - 完整凭证管理
+  - `HasCredential()` - 检查是否已有凭证
+
+- [x] `client/internal/auth/signer.go` - Nonce 签名器
+  - `NewSigner()` - 创建签名器
+  - `Sign()` - 对 nonce 进行 Ed25519 签名（Base64 输出）
+
+- [x] `client/internal/commands/join.go` - Join 命令实现
+  - `Join()` - 执行完整 join 流程
+  - 生成密钥对 → 调用 API → 保存凭证
+
+- [x] `client/cmd/main.go` - 添加 join 命令处理
+  - `handleJoin()` - 命令参数解析和执行
+
+#### 服务端修改文件
+
+- [x] `pkg/sqlite/migrations/002_add_public_key.sql` - 数据库迁移
+  - `ALTER TABLE users ADD COLUMN public_key TEXT NOT NULL`
+  - `CREATE UNIQUE INDEX idx_users_public_key ON users(public_key)`
+
+- [x] `server/internal/controller/invite_controller.go` - 添加 public_key 支持
+  - `ActivateInviteCodeRequest` 添加 `PublicKey` 字段
+  - 公钥格式验证（40-50 字符 Base64）
+
+- [x] `server/internal/service/invite_service.go` - 激活逻辑更新
+  - `Activate()` 新增 `publicKey` 参数
+
+- [x] `server/internal/store/invite.go` - 完整激活事务
+  - 创建用户（绑定 public_key）
+  - 创建用户-邀请码关联
+  - 更新邀请码状态
+
+#### 验证步骤
+
+```bash
+# 1. 启动服务端
+make run-server
+
+# 2. 生成邀请码
+curl -X POST http://localhost:8080/api/v1/invite/generate
+# {"code":"INV-XXXXXXXX"}
+
+# 3. 客户端执行 join
+./bin/charline join INV-XXXXXXXX alice
+# ✓ Join 成功！
+#   用户名: alice
+#   凭证版本: 1
+
+# 4. 验证文件
+ls -la ~/.charline/
+# -rw-------  id_ed25519      (私钥, 600)
+# -rw-r--r--  id_ed25519.pub  (公钥)
+# -rw-r--r--  token.jwt       (JWT Token)
+
+# 5. 验证服务端用户
+sqlite3 server/data/server.db "SELECT username, public_key FROM users;"
+# alice    | Base64EncodedPublicKey...
+```
+
+#### 安全特性
+
+- 私钥文件权限 `600`（仅用户可读写）
+- 目录权限 `700`（仅用户可访问）
+- 私钥永不网络传输，仅传输公钥
+
 ---
 
 ## 当前进行中 🚧
 
-暂无
+### Phase 2.1: Nonce 签名登录
+
+**目标**: 实现 `/auth login` 命令，基于 Ed25519 PoP（Proof of Possession）认证
+
+**参考文档**: `memory-bank/phase2-1-login-auth.md`
+
+#### 核心流程
+
+```
+1. 客户端读取本地私钥和 token
+2. GET /api/v1/auth/challenge (携带旧 token)
+3. 服务端验证 token，生成随机 nonce (5-30秒有效)
+4. 客户端用私钥签名 nonce
+5. POST /api/v1/auth/login (nonce + signature)
+6. 服务端验签，更新 token 版本
+7. 返回新 token
+```
+
+#### 关键文件
+
+| 客户端新增 | 描述 |
+| --- | --- |
+| `client/internal/commands/login.go` | `/auth login` 命令入口 |
+| `client/internal/store/token.go` | Token 管理（加载/保存） |
+
+| 服务端新增 | 描述 |
+| --- | --- |
+| `server/internal/controller/auth_controller.go` | /challenge 和 /login 端点 |
+| `server/internal/service/auth_service.go` | 认证业务逻辑 |
+| `server/internal/store/nonce_store.go` | Nonce 内存存储（防重放） |
+
+#### 代码审查
+
+详见 `memory-bank/phase2-1-login-auth.md` 第五节「人工代码审查思路」
 
 ---
 
 ## 待办事项 📋
 
-### Phase 2: 客户端注册与存储
-- [ ] client/internal/store/sqlite.go - SQLite 存储（复用 pkg/sqlite）
-- [ ] client/internal/commands/register.go - /join 命令
-- [ ] 客户端配置管理
+### Phase 2.1: Nonce 签名登录
+- [ ] `server/internal/store/nonce_store.go` - Nonce 内存存储
+- [ ] `server/internal/service/auth_service.go` - Challenge/Login 业务逻辑
+- [ ] `server/internal/controller/auth_controller.go` - /auth/* 端点
+- [ ] `client/internal/commands/login.go` - /auth login 命令
+- [ ] `client/internal/store/token.go` - Token 独立管理
+- [ ] `server/internal/router/router.go` - 添加 /auth/* 路由
 
 ### Phase 3: WebSocket 基础通信
 - [ ] server/internal/websocket/pool.go - 连接池
@@ -176,370 +299,93 @@ curl http://localhost:8080/api/validate \
 
 ### Phase 4-9: 后续阶段
 详见 `implementation-plan.md`
+---
 
 ---
 
-## 问题与解决 🔧
+### Phase 2 完善与代码优化（2025-01-27 完成）
 
-### 2025-01-15 日志系统编译错误修复
-**问题**: 
-- config.go 中未使用的 zap 导入
-- context.go 中指针赋值错误
-- logger.go 中 sugar.With 类型不匹配
+**本轮更新内容：**
 
-**解决**:
-- 移除未使用的导入
-- 修改 SetRequestID: `*r = *r.WithContext(ctx)`
-- 简化 Logger 结构，移除 sugar 字段
+#### 1. 客户端 Phase 2 模块完成
 
-### 2025-01-16 Logger 抽象为公共库
-**任务**: 将 server/internal/logger 抽象为 pkg/logger
-
-**变更**:
-- 创建 `pkg/logger` 公共库
-- 定义 `logger.Config` 接口
-- Server 和 Client 分别实现配置适配器
-- 使用 `go.work` 管理多模块
-- 使用 `replace` 指令引用本地 pkg
-
-### 2025-01-19 HTTP 请求日志级别优化
-**问题**: 访问不存在的路径返回 404，但日志仍使用 INFO 级别
-
-**解决**: 根据 HTTP 状态码动态选择日志级别
-- 2xx/3xx → INFO
-- 4xx → WARN
-- 5xx → ERROR
-
-### 2025-01-19 Phase 1 邀请激活系统实现
-**技术选型**:
-- SQLite: 轻量级，适合 2核2G 服务器
-- pkg/sqlite: Server 和 Client 共用
-- 统一错误码: ERR_模块_具体错误 格式
-
-**架构分层**:
-```
-Handler (HTTP 处理)
-    ↓
-Store (业务逻辑)
-    ↓
-SQLite (数据访问)
-```
-
-**遇到的问题**:
-- logger.String/Int 方法不存在 → 改用 zap.String/zap.Int
-- main.go 导入路径错误 → 使用 serverlogger 别名
-- 配置验证失败 → 确保设置环境变量
-
----
-
-## 下一步行动
-
-1. Phase 2: 客户端注册与存储
-2. 实现 /join 命令
-3. 客户端使用 pkg/sqlite 存储用户凭证
-
----
-
-### 目录结构优化（2025-01-21 完成）
-
-**问题**:
-- 根目录 `data/` 有歧义（无法区分是 server 还是 client 的数据）
-- SQLite 数据库文件不应上传到远程仓库
-
-**变更**:
-- `data/charline.db` → `server/data/server.db`
-- 新建 `client/data/` 目录（空，为 Phase 2 准备）
-- 更新 `server/internal/config/config.go` 默认路径
-
-**.gitignore 更新**:
-```gitignore
-# Database files
-*.db
-*.db-shm
-*.db-wal
-
-# Data directories
-server/data/
-client/data/
-```
-
-**配置路径更新**:
-- `DBPath` 默认值: `server/data/server.db`
-- `GetDBConfig()` 返回: `server/data/server.db`
-
----
-
-### 错误码和响应结构重构（2025-01-22 完成）
-
-**问题**: 
-- 原有 `api/handler.go` 文件过大，职责不清晰
-- 错误响应缺少详细信息，用户无法知道具体错误原因
-- 缺少 Controller-Service 分层架构
-
-**变更**:
-
-#### 1. 错误码数字化（按语义分段）
-```
-0     - 成功
-1xxx  - 参数/请求错误
-2xxx  - 资源相关错误
-3xxx  - 认证/授权错误
-5xxx  - 系统内部错误
-```
-
-#### 2. 统一响应结构
-```go
-type Response struct {
-    Code    int         `json:"code"`
-    Message string      `json:"message"`
-    Data    interface{} `json:"data,omitempty"`
-}
-```
-
-#### 3. BizError 详细错误信息增强
-```go
-type BizError struct {
-    Code    int
-    Message string
-    Details map[string]interface{} // 详细信息
-    cause   error                 // 原始错误（用于日志）
-}
-
-// 链式调用方法
-func (e *BizError) WithDetail(key string, value interface{}) *BizError
-func (e *BizError) WithDetails(details map[string]interface{}) *BizError
-func (e *BizError) WrapError(cause error) *BizError
-func (e *BizError) GetCause() error
-func (e *BizError) GetDetailedMsg() string
-```
-
-#### 4. 目录结构重构
-```
-server/internal/
-├── controller/           # 新增：Controller 层（原 api）
-│   ├── invite_controller.go
-│   ├── auth_controller.go
-│   └── response.go
-├── service/              # 新增：Service 层（业务逻辑）
-│   ├── invite_service.go
-│   └── auth_service.go
-├── store/                # 保留：数据访问层
-│   └── invite.go         # 修改：返回 *errors.BizError
-├── auth/                 # 保留：JWT 工具层
-│   └── jwt.go            # 修改：返回 *errors.BizError
-└── errors/               # 扩展：错误码系统
-    └── codes.go          # 修改：新增 Details 字段和链式方法
-```
-
-#### 5. 分层架构
-```
-Controller (controller/)  →  请求/响应解析，调用 Service
-         ↓
-Service (service/)        →  业务逻辑编排，调用 Store/Auth
-         ↓
-Store/Auth (store/auth/)  →  数据访问、JWT 处理
-```
-
-#### 6. 响应格式示例
-
-**无详细信息时（现有）**：
-```json
-{
-    "code": 1003,
-    "message": "用户名格式无效"
-}
-```
-
-**有详细信息时（新）**：
-```json
-{
-    "code": 1003,
-    "message": "用户名格式无效",
-    "data": {
-        "reason": "用户名长度必须在 3-20 字符之间",
-        "field": "username",
-        "provided": "ab",
-        "length": 2,
-        "min_length": 3,
-        "max_length": 20
-    }
-}
-```
-
-#### 7. 关键文件变更
-| 文件 | 操作 |
+**新建文件：**
+| 文件 | 描述 |
 | --- | --- |
-| server/internal/errors/codes.go | 扩展 BizError 结构，新增链式方法 |
-| server/internal/controller/response.go | 统一响应结构，处理 Details |
-| server/internal/controller/invite_controller.go | 新建，从 handler.go 迁移 |
-| server/internal/controller/auth_controller.go | 新建，从 handler.go 迁移 |
-| server/internal/service/invite_service.go | 新建，业务逻辑层 |
-| server/internal/service/auth_service.go | 新建，认证业务逻辑 |
-| server/internal/store/invite.go | 修改，返回 *errors.BizError |
-| server/internal/auth/jwt.go | 修改，返回 *errors.BizError |
-| server/cmd/main.go | 修改，集成新架构 |
-| server/internal/api/ | 删除，重命名为 controller |
+| `client/internal/auth/keypair.go` | Ed25519 密钥对生成/加载（PEM 格式） |
+| `client/internal/auth/signer.go` | Nonce 签名器（Ed25519） |
+| `client/internal/store/paths.go` | ~/.charline/ 路径管理 |
+| `client/internal/store/credential.go` | 凭证存储（JWT + 元数据） |
+| `client/internal/commands/join.go` | /join 命令实现 |
 
-#### 8. 使用示例
-```go
-// Controller 层手动添加详细信息
-if len(req.Username) < 3 {
-    bizErr := apperrors.ErrInvalidUsername.
-        WithDetail("reason", "用户名长度必须在 3-20 字符之间").
-        WithDetail("field", "username").
-        WithDetail("provided", req.Username).
-        WithDetail("length", len(req.Username))
-    RespondError(w, bizErr)
-    return
-}
-
-// Service 层包装底层错误（用于日志）
-if err := db.Exec(...); err != nil {
-    return "", 0, errors.ErrSystemError.
-        WrapError(err).
-        WithDetail("operation", "invite_activate")
-}
-```
-
-#### 9. 向后兼容性
-- 现有预定义错误无需修改，继续正常工作
-- 无 Details 时响应格式保持不变
-- 所有现有 API 端点路径不变
-
----
-
-### 依赖注入容器 + 路由模块化（2025-01-26 完成）
-
-**变更内容**:
-
-#### 1. 新增 container 依赖注入容器
-- [x] `server/internal/container/container.go`
-  - `NewContainer()` - 组装所有依赖
-  - 返回包含所有 Controllers 的容器结构
-
-#### 2. 新增 router 路由模块
-- [x] `server/internal/router/router.go`
-  - `NewRouter()` - 创建并配置路由
-  - 支持路由分组：`/api/v1/*`
-  - 支持全局中间件配置
-  - 开发环境自动打印路由列表
-
-#### 3. 配置管理改进
-- [x] `server/internal/config/config.go` - 添加 godotenv 加载
-- [x] `client/internal/config/config.go` - 添加 godotenv 加载
-- [x] 多路径查找：当前目录 `.env` → 项目根目录 `.env`
-
-#### 4. main.go 简化
-- [x] 从 118 行简化至 91 行
-- [x] 使用 container.NewContainer() 组装依赖
-- [x] 使用 router.NewRouter() 构建路由
-
-#### 5. 依赖更新
-- [x] `github.com/joho/godotenv v1.5.1` - .env 文件加载
-
-#### 6. API 路由变更
-| 旧路由 | 新路由 |
+**修改文件：**
+| 文件 | 修改内容 |
 | --- | --- |
-| `/api/invite/generate` | `/api/v1/invite/generate` |
-| `/api/invite/activate` | `/api/v1/invite/activate` |
-| `/api/validate` | `/api/v1/validate` |
-| `/health` | `/health`（不变） |
+| `client/cmd/main.go` | 添加 join 命令处理 |
+| `client/go.mod` | 添加 godotenv 依赖 |
+| `client/internal/config/config.go` | 添加 .env 加载和项目根目录检测 |
 
-#### 7. 目录结构变更
+#### 2. 服务端 public_key 支持
+
+**新建文件：**
+| 文件 | 描述 |
+| --- | --- |
+| `pkg/sqlite/migrations/002_add_public_key.sql` | 数据库迁移（users 表添加 public_key） |
+
+**修改文件：**
+| 文件 | 修改内容 |
+| --- | --- |
+| `server/internal/controller/invite_controller.go` | 添加 public_key 字段，支持公钥验证 |
+| `server/internal/service/invite_service.go` | Activate() 新增 publicKey 参数 |
+| `server/internal/store/invite.go` | 完整激活事务（用户创建+关联+邀请码更新） |
+
+#### 3. inviteService 接口统一
+
+**新建文件：**
+| 文件 | 描述 |
+| --- | --- |
+| `server/internal/service/interfaces.go` | `InviteServiceInterface` 统一接口定义 |
+
+**修改文件：**
+| 文件 | 修改内容 |
+| --- | --- |
+| `server/internal/controller/invite_controller.go` | 使用 `service.InviteServiceInterface`，移除重复定义 |
+
+#### 4. 响应结构统一
+
+**修改文件：**
+| 文件 | 修改内容 |
+| --- | --- |
+| `server/internal/controller/invite_controller.go` | 移除重复的 `writeSuccess`/`writeError`，改用 `response.go` 的 `RespondSuccess`/`RespondError` |
+
+#### 5. 文档更新
+
+**新建文档：**
+| 文件 | 描述 |
+| --- | --- |
+| `memory-bank/phase2-1-login-auth.md` | Phase 2.1 Nonce 签名登录完整实施文档（含代码审查思路） |
+
+**修改文档：**
+| 文件 | 修改内容 |
+| --- | --- |
+| `memory-bank/document-navigation.md` | 添加 phase2-1-login-auth.md 引用 |
+| `memory-bank/progress.md` | 标记 Phase 2 完成，更新待办事项 |
+
+#### 代码统计
+
 ```
-server/internal/
-├── container/           # 新增
-│   └── container.go
-├── router/              # 新增
-│   └── router.go
-├── controller/          # 保留
-├── service/             # 保留
-├── store/               # 保留
-├── auth/                # 保留
-├── errors/              # 保留
-├── config/              # 修改（支持 .env）
-└── logger/              # 保留
+ 11 files changed, 478 insertions(+), 511 deletions(-)
 ```
 
-#### 8. 架构改进
-**职责分离**:
-- `container`: 依赖组装
-- `router`: 路由配置
-- `main`: 启动流程编排
-
-**依赖关系**:
-```
-main.go (91行)
-    ├─ config.Load()
-    ├─ logger.New()
-    ├─ sqlite.New()
-    ├─ container.NewContainer()  ← 新增
-    │   ├─ jwtManager
-    │   ├─ store
-    │   ├─ services
-    │   └─ controllers
-    └─ router.NewRouter()         ← 更新
-        └─ Controllers
-            ├─ Invite
-            └─ Auth
-```
-
-#### 9. 测试验证
-```bash
-# 服务启动成功，路由打印正常
-=== Registered Routes ===
-  POST   /api/v1/invite/activate
-  POST   /api/v1/invite/generate
-  GET    /api/v1/validate
-  GET    /health
-```
+- **客户端新增**：auth/、store/、commands/ 三个包
+- **服务端优化**：接口统一、响应结构统一
+- **文档完善**：Phase 2.1 实施指南 + 代码审查清单
 
 ---
 
-### 配置文件项目根目录检测（2025-01-26 完成）
+### 下一步计划
 
-**问题**:
-- DB_PATH 配置在从不同目录运行时路径不正确
-- client 和 server 的数据目录路径需要统一基于项目根目录
+1. **Phase 2.1**: 实现 `/auth login` 命令（Nonce 签名登录）
+2. **Phase 3**: WebSocket 通信基础
 
-**变更**:
-- [x] `client/internal/config/config.go` - 添加 `GetProjectRoot()` 和 `findProjectRoot()`
-- [x] `server/internal/config/config.go` - 添加 `findProjectRoot()`，优化 DB_PATH 配置
-- [x] `GetDBConfig()` 改为从完整路径解析目录和文件名
-
-**技术实现**:
-- 向上查找 `go.work` 文件确定项目根目录
-- DB_PATH 环境变量支持完整路径配置
-- 默认值使用相对路径：`<projectRoot>/server/data/server.db`
-
-**配置优先级**:
-1. `DB_PATH` 环境变量（完整路径）
-2. 默认值：基于项目根目录的相对路径
-
-**代码示例**:
-```go
-// findProjectRoot 实现
-func findProjectRoot() string {
-    dir, _ := os.Getwd()
-    for {
-        if _, err := os.Stat(filepath.Join(dir, "go.work")); err == nil {
-            return dir
-        }
-        parent := filepath.Dir(dir)
-        if parent == dir {
-            break
-        }
-        dir = parent
-    }
-    return "."
-}
-
-// GetDBConfig 从完整路径解析
-func (c *Config) GetDBConfig() DBConfig {
-    dir := filepath.Dir(c.DBPath)
-    name := filepath.Base(c.DBPath)
-    return DBConfig{DataDir: dir, Name: name}
-}
-```
-
----
+详见 `memory-bank/phase2-1-login-auth.md`

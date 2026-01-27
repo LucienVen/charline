@@ -12,9 +12,10 @@ import (
 
 // Config 客户端配置
 type Config struct {
-	Env       string // 环境: development | production
-	LogLevel  string // 日志级别: debug | info | warn | error
-	LogFormat string // 日志格式: console | json
+	ServerURL   string // 服务端 URL
+	Env         string // 环境: development | production
+	LogLevel    string // 日志级别: debug | info | warn | error
+	LogFormat   string // 日志格式: console | json
 }
 
 // Load 从环境变量加载配置
@@ -25,9 +26,10 @@ func Load() (*Config, error) {
 	_ = godotenv.Load("../../.env")
 
 	cfg := &Config{
-		Env:       getEnv("ENV", "development"),
-		LogLevel:  getEnv("LOG_LEVEL", "info"),
-		LogFormat: getEnv("LOG_FORMAT", "console"),
+		ServerURL:   getEnv("SERVER_URL", "http://localhost:8080"),
+		Env:         getEnv("ENV", "development"),
+		LogLevel:    getEnv("LOG_LEVEL", "info"),
+		LogFormat:   getEnv("LOG_FORMAT", "console"),
 	}
 
 	// 验证配置

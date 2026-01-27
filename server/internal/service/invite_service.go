@@ -42,10 +42,13 @@ func (s *InviteService) Generate() (string, *apperrors.BizError) {
 	return code, nil
 }
 
-// Activate 激活邀请码，返回 Token
-func (s *InviteService) Activate(code, username string) (token string, version int, bizErr *apperrors.BizError) {
-	// 激活邀请码
-	if bizErr = s.inviteStore.Activate(code, username); bizErr != nil {
+// Activate 激活邀请码，创建用户并返回 Token
+// 参数: code - 邀请码, username - 用户名, publicKey - Ed25519 公钥 (Base64 编码)
+// 返回: token - JWT Token, version - 凭证版本, 业务错误
+func (s *InviteService) Activate(code, username, publicKey string) (token string, version int, bizErr *apperrors.BizError) {
+	// 激活邀请码并创建用户
+	userID, bizErr := s.inviteStore.Activate(code, username, publicKey)
+	if bizErr != nil {
 		s.logger.Error("激活邀请码失败",
 			zap.String("code", code),
 			zap.String("username", username),
@@ -58,12 +61,14 @@ func (s *InviteService) Activate(code, username string) (token string, version i
 	if err != nil {
 		s.logger.Error("生成 Token 失败",
 			zap.String("username", username),
+			zap.Int64("user_id", userID),
 			zap.String("error", err.Error()))
 		return "", 0, apperrors.ErrSystemError
 	}
 
 	s.logger.Info("激活邀请码成功",
 		zap.String("code", code),
-		zap.String("username", username))
+		zap.String("username", username),
+		zap.Int64("user_id", userID))
 	return tokenStr, 1, nil
 }

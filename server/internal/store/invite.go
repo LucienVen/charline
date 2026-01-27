@@ -65,45 +65,118 @@ func (s *InviteStore) Generate() (string, *apperrors.BizError) {
 	return "", apperrors.ErrSystemError
 }
 
-// Activate 激活邀请码
-// 参数: code - 邀请码, username - 用户名
-// 返回: 业务错误
-func (s *InviteStore) Activate(code, username string) *apperrors.BizError {
+// Activate 激活邀请码，创建用户并建立关联
+// 参数: code - 邀请码, username - 用户名, publicKey - Ed25519 公钥 (Base64 编码)
+// 返回: userID - 新创建的用户 ID, 业务错误
+func (s *InviteStore) Activate(code, username, publicKey string) (int64, *apperrors.BizError) {
 	if !s.isValidFormat(code) {
-		return apperrors.ErrInviteInvalid
+		return 0, apperrors.ErrInviteInvalid
 	}
 
 	// 检查邀请码是否存在且未使用
 	valid, bizErr := s.Validate(code)
 	if bizErr != nil {
-		return bizErr
+		return 0, bizErr
 	}
 	if !valid {
-		return apperrors.ErrInviteUsed
+		return 0, apperrors.ErrInviteUsed
 	}
 
-	// 激活邀请码
-	result, err := s.db.Exec(
-		"UPDATE invite_codes SET used_at = ?, username = ? WHERE code = ?",
-		time.Now(), username, code,
-	)
+	// 获取邀请码 ID
+	var inviteCodeID int64
+	err := s.db.QueryRow(
+		"SELECT id FROM invite_codes WHERE code = ?",
+		code,
+	).Scan(&inviteCodeID)
+	if err == sql.ErrNoRows {
+		return 0, apperrors.ErrInviteNotFound
+	}
 	if err != nil {
-		s.logger.Error("激活邀请码失败",
+		s.logger.Error("查询邀请码 ID 失败",
 			zap.String("code", code),
 			zap.String("error", err.Error()))
-		return apperrors.ErrSystemError
+		return 0, apperrors.ErrSystemError
 	}
 
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
-		return apperrors.ErrInviteNotFound
+	// 开始事务
+	tx, err := s.db.Conn().Begin()
+	if err != nil {
+		s.logger.Error("开始事务失败",
+			zap.String("code", code),
+			zap.String("error", err.Error()))
+		return 0, apperrors.ErrSystemError
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	now := time.Now()
+
+	// 1. 创建用户
+	result, err := tx.Exec(
+		"INSERT INTO users (username, public_key, created_at, updated_at) VALUES (?, ?, ?, ?)",
+		username, publicKey, now, now,
+	)
+	if err != nil {
+		s.logger.Error("创建用户失败",
+			zap.String("code", code),
+			zap.String("username", username),
+			zap.String("error", err.Error()))
+		return 0, apperrors.ErrSystemError
 	}
 
-	s.logger.Info("激活邀请码",
+	// 获取用户 ID
+	userID, err := result.LastInsertId()
+	if err != nil {
+		s.logger.Error("获取用户 ID 失败",
+			zap.String("code", code),
+			zap.String("error", err.Error()))
+		return 0, apperrors.ErrSystemError
+	}
+
+	// 2. 创建用户-邀请码关联
+	_, err = tx.Exec(
+		"INSERT INTO user_invite_relations (user_id, invite_code_id, created_at) VALUES (?, ?, ?)",
+		userID, inviteCodeID, now,
+	)
+	if err != nil {
+		s.logger.Error("创建用户邀请码关联失败",
+			zap.String("code", code),
+			zap.Int64("user_id", userID),
+			zap.Int64("invite_code_id", inviteCodeID),
+			zap.String("error", err.Error()))
+		return 0, apperrors.ErrSystemError
+	}
+
+	// 3. 更新邀请码使用次数
+	_, err = tx.Exec(
+		"UPDATE invite_codes SET used_count = used_count + 1, updated_at = ? WHERE code = ?",
+		now, code,
+	)
+	if err != nil {
+		s.logger.Error("更新邀请码失败",
+			zap.String("code", code),
+			zap.String("error", err.Error()))
+		return 0, apperrors.ErrSystemError
+	}
+
+	// 提交事务
+	if err = tx.Commit(); err != nil {
+		s.logger.Error("提交事务失败",
+			zap.String("code", code),
+			zap.String("error", err.Error()))
+		return 0, apperrors.ErrSystemError
+	}
+
+	s.logger.Info("激活邀请码并创建用户",
 		zap.String("code", code),
-		zap.String("username", username))
+		zap.String("username", username),
+		zap.Int64("user_id", userID),
+		zap.Int64("invite_code_id", inviteCodeID))
 
-	return nil
+	return userID, nil
 }
 
 // Validate 验证邀请码是否有效

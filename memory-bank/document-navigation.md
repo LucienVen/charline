@@ -15,16 +15,17 @@
 
 
 
-| name               | desc                                 | author |
-| ------------------ | ------------------------------------ | ------ |
-| design-document.md | 基础设计想法                         | lxt    |
-| tech-stack.md      | 技术栈                               | lxt    |
-| architecture.md    | 主要功能或完成里程碑后，文件文档记录 |        |
-| progress.md        | 跟踪已完成的步骤                     |        |
+| name | desc | author |
+| --- | --- | --- |
+| design-document.md | 基础设计想法 | lxt |
+| tech-stack.md | 技术栈 | lxt |
+| architecture.md | 主要功能或完成里程碑后，文件文档记录 |  |
+| progress.md | 跟踪已完成的步骤 |  |
 | implementation-plan.md | 实施规划，详细的10阶段开发路线图 | claude code |
-| usages.md              | Makefile 等工具使用说明               | claude code |
+| usages.md | Makefile 等工具使用说明 | claude code |
 | charline_jwt_ed25519_auth.md | CharLine 认证方案总结：JWT + Ed25519 私钥签名 | lxt |
-|                    |                                      |        |
+| phase2-1-login-auth.md | Phase 2.1 Nonce 签名登录：/auth login 命令实现与审查 | claude code |
+|  |  |  |
 
 
 
@@ -42,24 +43,24 @@
 请按以下顺序逐一阅读，不得跳过：
 
 1. `memory-bank/@design-document.md`
-   - 项目背景
-   - 核心目标
-   - 初始设计想法
+  - 项目背景
+  - 核心目标
+  - 初始设计想法
 
 2. `memory-bank/@tech-stack.md`
-   - 技术选型
-   - 依赖说明
-   - 约束条件
+  - 技术选型
+  - 依赖说明
+  - 约束条件
 
 3. `memory-bank/@architecture.md`
-   - 当前架构设计
-   - 模块划分
-   - 关键流程
+  - 当前架构设计
+  - 模块划分
+  - 关键流程
 
 4. `memory-bank/@progress.md`
-   - 当前进度
-   - 已完成事项
-   - 待办事项
+  - 当前进度
+  - 已完成事项
+  - 待办事项
 
 ---
 
@@ -97,6 +98,6 @@
 
 
 
-***
+---
 
 注：docs-backup/ 目录下文档为之前的规划记录，仅供记录与参考，切勿直接使用
