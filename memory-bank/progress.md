@@ -488,3 +488,79 @@ server/internal/
 
 1. **Phase 2.1**: 实现 `/auth login` 命令（Nonce 签名登录）
 2. **Phase 3**: WebSocket 通信基础
+
+---
+
+### 请求解析统一优化（2025-01-28 完成）
+
+**目标**: 将请求体 JSON 解析抽象为统一方法，消除重复代码
+
+#### 1. 创建 httputil/request.go
+
+**新建文件：**
+| 文件 | 描述 |
+| --- | --- |
+| `server/internal/httputil/request.go` | 统一请求体解析工具 |
+
+**核心函数：**
+```go
+func DecodeJSON(w http.ResponseWriter, r *http.Request, dest interface{}) bool
+```
+
+**特点：**
+- 统一处理 JSON 解析错误
+- 自动响应错误给客户端
+- 返回 bool 表示成功/失败
+- 简化控制器代码
+
+#### 2. 重构控制器使用统一方法
+
+**修改文件：**
+| 文件 | 变更 |
+| --- | --- |
+| `server/internal/controller/invite_controller.go` | 使用 `httputil.DecodeJSON()` |
+
+**Before:**
+```go
+var req httputil.ActivateInviteRequest
+if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	httputil.RespondWithError(w, http.StatusBadRequest, 
+	    errors.ErrInvalidParam.WithDetail("reason", "参数解析失败").WithDetail("error", err.Error()))
+	return
+}
+```
+
+**After:**
+```go
+var req httputil.ActivateInviteRequest
+if !httputil.DecodeJSON(w, r, &req) {
+	return
+}
+```
+
+#### 3. 优化效果
+
+| 维度 | 优化前 | 优化后 | 改进 |
+| --- | --- | --- | --- |
+| 代码行数 | 5-8 行解析逻辑 | 1 行调用 | -80% |
+| 可读性 | 分散的解析+错误处理 | 语义清晰 | ⬆️ 显著提升 |
+| 可维护性 | 修改需改多处 | 单点修改 | ⬆️ 易维护 |
+| 一致性 | 每个端点实现可能不同 | 统一行为 | ⬆️ 标准化 |
+
+#### 4. 未来扩展性
+
+Phase 2.1 新增端点可直接复用：
+
+```go
+// Phase 2.1: /auth/login 端点
+func (c *AuthController) Login(w http.ResponseWriter, r *http.Request) {
+	var req httputil.LoginRequest
+	if !httputil.DecodeJSON(w, r, &req) {
+		return
+	}
+	// ... 业务逻辑
+}
+```
+
+---
+

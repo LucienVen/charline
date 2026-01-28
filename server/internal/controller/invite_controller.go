@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"encoding/json"
 	"net/http"
 	"regexp"
 
@@ -33,8 +32,7 @@ func NewInviteController(
 // POST /api/v1/invite/activate
 func (c *InviteController) ActivateInviteCode(w http.ResponseWriter, r *http.Request) {
 	var req httputil.ActivateInviteRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.RespondWithError(w, http.StatusBadRequest, errors.ErrInvalidParam.WithDetail("reason", "参数解析失败").WithDetail("error", err.Error()))
+	if !httputil.DecodeJSON(w, r, &req) {
 		return
 	}
 

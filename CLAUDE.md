@@ -5,6 +5,12 @@
 
 **默认语言：中文**（除非用户明确要求英文）。
 
+**MCP工具**：
+
+1. 无需我明确要求，当我需要库或API文档、生成代码、创建项目基架时或配置步骤时，始终使用Context7 MCP。
+
+   
+
 ---
 
 ## 一、最高优先级规则（强制）
@@ -41,7 +47,7 @@
 **必须同步更新：**
 
 ```text
-memory-bank/@architecture.md
+memory-bank/architecture.md, memory-bank/progress.md 等文档
 ```
 
 用于记录：
