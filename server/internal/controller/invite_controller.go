@@ -6,8 +6,9 @@ import (
 	"regexp"
 
 	"github.com/LucienVen/charline/pkg/logger"
+	"github.com/LucienVen/charline/server/internal/errors"
+	"github.com/LucienVen/charline/server/internal/httputil"
 	"github.com/LucienVen/charline/server/internal/service"
-	apperrors "github.com/LucienVen/charline/server/internal/errors"
 	"go.uber.org/zap"
 )
 
@@ -28,31 +29,24 @@ func NewInviteController(
 	}
 }
 
-// ActivateInviteCodeRequest 激活邀请码请求
-type ActivateInviteCodeRequest struct {
-	Code      string `json:"code"`
-	Username  string `json:"username"`
-	PublicKey string `json:"public_key"`
-}
-
 // ActivateInviteCode 激活邀请码
 // POST /api/v1/invite/activate
 func (c *InviteController) ActivateInviteCode(w http.ResponseWriter, r *http.Request) {
-	var req ActivateInviteCodeRequest
+	var req httputil.ActivateInviteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		RespondWithError(w, http.StatusBadRequest, apperrors.ErrInvalidParam.WithDetail("reason", "参数解析失败").WithDetail("error", err.Error()))
+		httputil.RespondWithError(w, http.StatusBadRequest, errors.ErrInvalidParam.WithDetail("reason", "参数解析失败").WithDetail("error", err.Error()))
 		return
 	}
 
 	// 验证用户名格式
 	if !isValidUsername(req.Username) {
-		RespondWithError(w, http.StatusBadRequest, apperrors.ErrInvalidUsername)
+		httputil.RespondWithError(w, http.StatusBadRequest, errors.ErrInvalidUsername)
 		return
 	}
 
 	// 验证公钥格式 (Base64 编码的 Ed25519 公钥约 44 字符)
 	if len(req.PublicKey) < 40 || len(req.PublicKey) > 50 {
-		RespondWithError(w, http.StatusBadRequest, apperrors.ErrInvalidParam.WithDetail("reason", "公钥格式不正确"))
+		httputil.RespondWithError(w, http.StatusBadRequest, errors.ErrInvalidParam.WithDetail("reason", "公钥格式不正确"))
 		return
 	}
 
@@ -65,7 +59,7 @@ func (c *InviteController) ActivateInviteCode(w http.ResponseWriter, r *http.Req
 			zap.Int("error_code", err.Code),
 			zap.Error(err),
 		)
-		RespondError(w, err)
+		httputil.RespondError(w, err)
 		return
 	}
 
@@ -73,9 +67,9 @@ func (c *InviteController) ActivateInviteCode(w http.ResponseWriter, r *http.Req
 		zap.String("code", req.Code),
 		zap.String("username", req.Username))
 
-	RespondSuccess(w, map[string]interface{}{
-		"token":   token,
-		"version": version,
+	httputil.RespondSuccess(w, &httputil.ActivateInviteResponse{
+		Token:   token,
+		Version: version,
 	})
 }
 
@@ -85,13 +79,13 @@ func (c *InviteController) GenerateInviteCode(w http.ResponseWriter, r *http.Req
 	code, err := c.inviteService.Generate()
 	if err != nil {
 		c.logger.Error("生成邀请码失败", zap.Int("error_code", err.Code), zap.Error(err))
-		RespondError(w, err)
+		httputil.RespondError(w, err)
 		return
 	}
 
 	c.logger.Info("生成邀请码成功", zap.String("code", code))
-	RespondSuccess(w, map[string]interface{}{
-		"code": code,
+	httputil.RespondSuccess(w, &httputil.GenerateInviteCodeResponse{
+		Code: code,
 	})
 }
 

@@ -5,8 +5,9 @@ import (
 
 	"github.com/LucienVen/charline/pkg/logger"
 	"github.com/LucienVen/charline/server/internal/auth"
+	"github.com/LucienVen/charline/server/internal/errors"
+	"github.com/LucienVen/charline/server/internal/httputil"
 	"github.com/LucienVen/charline/server/internal/service"
-	apperrors "github.com/LucienVen/charline/server/internal/errors"
 )
 
 // AuthController 认证控制器
@@ -27,16 +28,6 @@ func NewAuthController(
 }
 
 // ============================================
-// 响应结构
-// ============================================
-
-// ValidateTokenResponse 验证 Token 响应
-type ValidateTokenResponse struct {
-	Valid    bool   `json:"valid"`
-	Username string `json:"username,omitempty"`
-}
-
-// ============================================
 // HTTP 处理器
 // ============================================
 
@@ -47,17 +38,17 @@ func (c *AuthController) ValidateToken(w http.ResponseWriter, r *http.Request) {
 	authHeader := r.Header.Get("Authorization")
 	token, err := auth.ParseTokenFromRequest(authHeader)
 	if err != nil {
-		RespondError(w, apperrors.ErrTokenInvalid)
+		httputil.RespondError(w, errors.ErrTokenInvalid)
 		return
 	}
 
 	claims, bizErr := c.authService.ValidateToken(token)
 	if bizErr != nil {
-		RespondError(w, bizErr)
+		httputil.RespondError(w, bizErr)
 		return
 	}
 
-	RespondSuccess(w, ValidateTokenResponse{
+	httputil.RespondSuccess(w, &httputil.ValidateTokenResponse{
 		Valid:    true,
 		Username: claims.Username,
 	})

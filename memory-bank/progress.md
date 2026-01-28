@@ -389,3 +389,102 @@ sqlite3 server/data/server.db "SELECT username, public_key FROM users;"
 2. **Phase 3**: WebSocket 通信基础
 
 详见 `memory-bank/phase2-1-login-auth.md`
+
+---
+
+### 代码结构优化（2025-01-28 完成）
+
+**目标**: 优化代码结构，将响应工具移到 httputil 层，使用 DTO 替代 map[string]interface{}
+
+#### 1. 创建 httputil 包
+
+**新建目录和文件：**
+| 文件 | 描述 |
+| --- | --- |
+| `server/internal/httputil/response.go` | 统一响应结构（Response struct + 辅助方法） |
+| `server/internal/httputil/dto.go` | Request/Response DTO 定义 |
+
+**DTO 定义：**
+```go
+// 请求 DTO
+type ActivateInviteRequest struct {
+    Code      string `json:"code"`
+    Username  string `json:"username"`
+    PublicKey string `json:"public_key"`
+}
+
+// 响应 DTO
+type GenerateInviteCodeResponse struct {
+    Code string `json:"code"`
+}
+
+type ActivateInviteResponse struct {
+    Token   string `json:"token"`
+    Version int    `json:"version"`
+}
+
+type ValidateTokenResponse struct {
+    Valid    bool   `json:"valid"`
+    Username string `json:"username,omitempty"`
+    Version  int    `json:"version,omitempty"`
+}
+```
+
+#### 2. 删除旧的 response.go
+
+**删除文件：**
+- `server/internal/controller/response.go`
+
+#### 3. 重构控制器使用 DTO
+
+**修改文件：**
+| 文件 | 变更 |
+| --- | --- |
+| `server/internal/controller/invite_controller.go` | 使用 `httputil` 包和 DTO |
+| `server/internal/controller/auth_controller.go` | 使用 `httputil` 包和 DTO |
+
+**Before:**
+```go
+RespondSuccess(w, map[string]interface{}{
+    "token":   token,
+    "version": version,
+})
+```
+
+**After:**
+```go
+RespondSuccess(w, &httputil.ActivateInviteResponse{
+    Token:   token,
+    Version: version,
+})
+```
+
+#### 新目录结构
+
+```
+server/internal/
+├── controller/           # 只包含业务控制器
+│   ├── invite_controller.go
+│   └── auth_controller.go
+├── httputil/            # HTTP 工具层（新建）
+│   ├── response.go      # 统一响应结构
+│   └── dto.go           # Request/Response DTO
+├── service/
+└── store/
+```
+
+#### DTO 优势
+
+| 优势 | 说明 |
+| --- | --- |
+| 编译时检查 | 字段类型错误编译时报错 |
+| IDE 补全 | 开发效率高 |
+| 自文档化 | 字段含义清晰 |
+| 便于维护 | 明确字段必选/可选 |
+
+---
+
+### 下一步计划
+
+1. **Phase 2.1**: 实现 `/auth login` 命令（Nonce 签名登录）
+2. **Phase 3**: WebSocket 通信基础

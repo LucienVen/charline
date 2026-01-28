@@ -1,4 +1,4 @@
-package controller
+package httputil
 
 import (
 	"encoding/json"
