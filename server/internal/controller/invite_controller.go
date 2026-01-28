@@ -41,7 +41,7 @@ func (c *InviteController) ActivateInviteCode(w http.ResponseWriter, r *http.Req
 		validationErrors := validator.ParseError(err)
 		c.logger.Warn("请求参数验证失败",
 			zap.Any("validation_errors", validationErrors))
-		httputil.RespondWithError(w, http.StatusBadRequest,
+		httputil.RespondError(w,
 			errors.ErrInvalidParam.WithDetails(map[string]interface{}{
 				"validation_errors": validationErrors,
 			}))

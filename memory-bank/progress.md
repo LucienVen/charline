@@ -721,3 +721,93 @@ type LoginRequest struct {
 
 ---
 
+
+### Phase 1 代码优化（2025-01-28 完成）
+
+**目标**: 消除代码冗余，提高服务稳定性
+
+#### 1. httputil 包函数合并
+
+**修改文件：**
+| 文件 | 变更 |
+| --- | --- |
+| `server/internal/httputil/response.go` | 合并 RespondError/RespondWithError |
+| `server/internal/httputil/request.go` | 更新函数调用 |
+| `server/internal/controller/invite_controller.go` | 更新函数调用 |
+
+**Before:**
+```go
+// 两个函数功能重复，容易混淆
+RespondError(w, bizErr)                    // 自动判断 HTTP 状态
+RespondWithError(w, httpStatus, bizErr)    // 手动指定 HTTP 状态
+```
+
+**After:**
+```go
+// 只保留一个函数，自动根据错误码判断 HTTP 状态
+RespondError(w, bizErr)
+```
+
+**优化效果：**
+- 消除 API 混淆
+- 减少 20 行重复代码
+- 调用更简洁
+
+#### 2. Recovery 中间件
+
+**新建文件：**
+| 文件 | 描述 |
+| --- | --- |
+| `server/internal/middleware/recovery.go` | Panic 恢复中间件 |
+
+**功能：**
+- 捕获 panic，防止服务崩溃
+- 记录 panic 详情（错误、路径、方法）
+- 返回 500 错误响应
+
+**核心实现：**
+```go
+type Recovery struct {
+    logger *logger.Logger
+}
+
+func (m *Recovery) Middleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        defer func() {
+            if err := recover(); err != nil {
+                m.logger.Error("Panic recovered",
+                    zap.Any("error", err),
+                    zap.String("path", r.URL.Path),
+                )
+                httputil.RespondError(w, errors.ErrSystemError)
+            }
+        }()
+        next.ServeHTTP(w, r)
+    })
+}
+```
+
+**中间件注册顺序：**
+```go
+Middlewares: []func(http.Handler) http.Handler{
+    recovery.Middleware,             // 最外层：Panic 恢复
+    serverlogger.RequestLogger(log), // 内层：请求日志
+},
+```
+
+**优化效果：**
+- 提高服务稳定性
+- 防止单个请求 panic 导致整体服务崩溃
+- 便于定位问题（详细日志）
+
+#### 3. 代码统计
+
+| 指标 | 数值 |
+| --- | --- |
+| 新增文件 | 1 个（recovery.go） |
+| 修改文件 | 4 个 |
+| 删除代码行 | ~30 行 |
+| 优化效果 | 消除混淆 + 提高稳定性 |
+
+---
+

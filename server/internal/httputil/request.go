@@ -25,7 +25,7 @@ import (
 //   }
 func DecodeJSON(w http.ResponseWriter, r *http.Request, dest interface{}) bool {
 	if err := json.NewDecoder(r.Body).Decode(dest); err != nil {
-		RespondWithError(w, http.StatusBadRequest,
+		RespondError(w,
 			errors.ErrInvalidParam.
 				WithDetail("reason", "参数解析失败").
 				WithDetail("error", err.Error()))

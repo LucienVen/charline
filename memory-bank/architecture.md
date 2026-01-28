@@ -644,3 +644,130 @@ type Error struct {
 
 ---
 
+
+### 2025-01-28: Phase 1 代码优化 - httputil 合并 + Recovery 中间件
+
+**背景**:
+- httputil 包存在两个功能重复的响应函数（RespondError/RespondWithError），容易混淆
+- 缺少 Panic 恢复机制，单个请求 panic 可能导致整体服务崩溃
+
+**新架构**:
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Server (最新架构)                        │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │  Controller  │  │   Validator  │  │   httputil   │      │
+│  │  HTTP 处理   │  │   字段验证   │  │  响应工具    │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │  Middleware  │  │    Service   │  │    Store     │      │
+│  │ Panic+Logger │  │  业务逻辑   │  │   数据访问   │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**新增模块**:
+
+| 模块 | 文件 | 职责 |
+| --- | --- | --- |
+| Middleware | `server/internal/middleware/recovery.go` | Panic 恢复中间件 |
+
+**目录结构**:
+```
+server/internal/
+├── middleware/                   # 新增：中间件包
+│   └── recovery.go              # Panic 恢复
+├── controller/
+├── service/
+├── store/
+├── validator/
+├── httputil/                     # 修改：合并响应函数
+│   ├── response.go              # 删除 RespondWithError
+│   ├── request.go
+│   └── dto.go
+├── errors/
+├── config/
+└── logger/
+```
+
+**中间件架构**:
+```
+HTTP Request
+    ↓
+┌────────────────────────────────┐
+│ Recovery Middleware (最外层)   │ ← 捕获 panic
+│ - defer recover()              │
+│ - 记录 panic 详情               │
+│ - 返回 500 错误                │
+└────────────────────────────────┘
+    ↓
+┌────────────────────────────────┐
+│ RequestLogger Middleware       │ ← 记录请求日志
+│ - 记录请求信息                 │
+│ - 记录响应状态码               │
+└────────────────────────────────┘
+    ↓
+┌────────────────────────────────┐
+│ Router & Controller             │ ← 业务处理
+└────────────────────────────────┘
+```
+
+**httputil 优化**:
+
+**Before:**
+```go
+// 两个函数功能重复
+RespondError(w, bizErr)                   // 自动判断 HTTP 状态
+RespondWithError(w, httpStatus, bizErr)    // 手动指定 HTTP 状态（已删除）
+```
+
+**After:**
+```go
+// 统一为一个函数
+RespondError(w, bizErr)    // 自动根据 bizErr.Code 判断 HTTP 状态
+```
+
+**HTTP 状态码映射规则**:
+```go
+func getHTTPStatus(code int) int {
+    switch {
+    case code >= 5000: return http.StatusInternalServerError  // 系统错误
+    case code >= 3000: return http.StatusUnauthorized      // 认证错误
+    case code >= 2000: return http.StatusBadRequest      // 资源错误
+    case code >= 1000: return http.StatusBadRequest      // 参数错误
+    default:           return http.StatusOK               // 成功
+    }
+}
+```
+
+**中间件注册顺序**:
+```go
+r := router.NewRouter(&router.Routes{
+    Middlewares: []func(http.Handler) http.Handler{
+        recovery.Middleware,              // 1️⃣ 最外层：Panic 恢复
+        serverlogger.RequestLogger(log),  // 2️⃣ 内层：请求日志
+    },
+})
+```
+
+**设计原则**:
+- **Recovery 优先**: 必须是最外层中间件，确保捕获所有 panic
+- **顺序重要**: Recovery → Logger → Router → Controller
+- **职责单一**: Recovery 只负责 panic 恢复，不处理业务逻辑
+
+**优化效果**:
+
+| 维度 | 优化前 | 优化后 | 改进 |
+| --- | --- | --- | --- |
+| **API 一致性** | 2 个相似函数 | 1 个统一函数 | ⬆️ 消除混淆 |
+| **代码行数** | 88 行 | 68 行 | -20 行 |
+| **服务稳定性** | Panic 导致崩溃 | 自动恢复 | ⬆️ 显著提升 |
+| **可调试性** | Panic 难以追踪 | 详细日志 | ⬆️ 易定位问题 |
+
+**技术栈**:
+- 标准: Go recover() + defer
+- 日志: zap（记录 panic 详情）
+- 错误处理: BizError 统一响应
+
+---
+

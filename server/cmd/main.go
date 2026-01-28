@@ -13,6 +13,7 @@ import (
 	"github.com/LucienVen/charline/server/internal/config"
 	"github.com/LucienVen/charline/server/internal/container"
 	serverlogger "github.com/LucienVen/charline/server/internal/logger"
+	"github.com/LucienVen/charline/server/internal/middleware"
 	"github.com/LucienVen/charline/server/internal/router"
 	"github.com/LucienVen/charline/server/internal/validator"
 	"go.uber.org/zap"
@@ -59,14 +60,18 @@ func main() {
 	}
 	log.Info("服务层、控制器层初始化成功")
 
-	// 6. 记录启动信息
+	// 6. 初始化中间件
+	recovery := middleware.NewRecovery(log)
+	log.Info("中间件初始化成功")
+
+	// 7. 记录启动信息
 	log.Info("Server starting",
 		zap.String("address", cfg.GetAddress()),
 		zap.String("env", cfg.Env),
 		zap.String("log_level", cfg.LogLevel),
 	)
 
-	// 7. 创建路由
+	// 8. 创建路由
 	r := router.NewRouter(&router.Routes{
 		Controllers: &router.Controllers{
 			Invite: container.InviteCtrl,
@@ -74,17 +79,18 @@ func main() {
 		},
 		Logger: log,
 		Middlewares: []func(http.Handler) http.Handler{
-			serverlogger.RequestLogger(log),
+			recovery.Middleware,             // Panic 恢复（最外层）
+			serverlogger.RequestLogger(log), // 请求日志
 		},
 	})
 
-	// 8. 创建 HTTP 服务器
+	// 9. 创建 HTTP 服务器
 	server := &http.Server{
 		Addr:    cfg.GetAddress(),
 		Handler: r,
 	}
 
-	// 9. 启动服务器
+	// 10. 启动服务器
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Error("Server error", zap.Error(err))
@@ -93,12 +99,12 @@ func main() {
 
 	log.Info("Server started", zap.String("address", cfg.GetAddress()))
 
-	// 10. 等待中断信号
+	// 11. 等待中断信号
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	// 11. 优雅关闭
+	// 12. 优雅关闭
 	log.Info("Server shutting down")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

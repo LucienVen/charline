@@ -34,26 +34,14 @@ func RespondSuccess(w http.ResponseWriter, data interface{}) {
 }
 
 // RespondError 业务错误响应
+// 根据 bizErr.Code 自动映射到对应的 HTTP 状态码
 func RespondError(w http.ResponseWriter, bizErr *errors.BizError) {
 	httpStatus := getHTTPStatus(bizErr.Code)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(httpStatus)
-
-	response := Response{
-		Code:    bizErr.Code,
-		Message: bizErr.Message,
-	}
-
-	// 有详细信息时放入 data 字段
-	if bizErr.Details != nil && len(bizErr.Details) > 0 {
-		response.Data = bizErr.Details
-	}
-
-	json.NewEncoder(w).Encode(response)
+	respondWithErrorInternal(w, httpStatus, bizErr)
 }
 
-// RespondWithError 使用 HTTP 状态码 + 业务错误码
-func RespondWithError(w http.ResponseWriter, httpStatus int, bizErr *errors.BizError) {
+// respondWithErrorInternal 内部错误响应实现
+func respondWithErrorInternal(w http.ResponseWriter, httpStatus int, bizErr *errors.BizError) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(httpStatus)
 
