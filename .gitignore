@@ -47,3 +47,5 @@ coverage.html
 # Data directories
 server/data/
 client/data/
+
+server/bin/

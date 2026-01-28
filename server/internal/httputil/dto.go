@@ -6,9 +6,9 @@ package httputil
 
 // ActivateInviteRequest POST /api/v1/invite/activate
 type ActivateInviteRequest struct {
-	Code      string `json:"code"`
-	Username  string `json:"username"`
-	PublicKey string `json:"public_key"`
+	Code      string `json:"code" validate:"required"`
+	Username  string `json:"username" validate:"required,username"`
+	PublicKey string `json:"public_key" validate:"required,ed25519_public_key"`
 }
 
 // ============================================
@@ -39,8 +39,8 @@ type ValidateTokenResponse struct {
 
 // LoginRequest POST /api/v1/auth/login
 type LoginRequest struct {
-	Nonce     string `json:"nonce"`
-	Signature string `json:"signature"`
+	Nonce     string `json:"nonce" validate:"required"`
+	Signature string `json:"signature" validate:"required"`
 }
 
 // ============================================

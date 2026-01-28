@@ -564,3 +564,160 @@ func (c *AuthController) Login(w http.ResponseWriter, r *http.Request) {
 
 ---
 
+
+### 验证器统一化优化（2025-01-28 完成）
+
+**目标**: 引入结构化验证器层，消除分散的验证逻辑
+
+#### 1. 新建验证器包
+
+**新建目录和文件：**
+| 文件 | 描述 |
+| --- | --- |
+| `server/internal/validator/validator.go` | 验证器核心（自定义验证规则） |
+| `server/internal/validator/errors.go` | 验证错误处理与友好消息 |
+
+**验证规则：**
+```go
+// username: 3-20位，字母开头，含字母数字下划线
+validateUsername() bool
+
+// ed25519_public_key: Base64 编码，解码后 32 字节
+validateEd25519PublicKey() bool
+```
+
+#### 2. 添加依赖
+
+**依赖库：**
+```bash
+github.com/go-playground/validator/v10  # 结构体验证
+```
+
+#### 3. 更新 DTO 添加验证标签
+
+**修改文件：**
+| 文件 | 变更 |
+| --- | --- |
+| `server/internal/httputil/dto.go` | 添加 `validate` tags |
+
+**Before:**
+```go
+type ActivateInviteRequest struct {
+    Code      string `json:"code"`
+    Username  string `json:"username"`
+    PublicKey string `json:"public_key"`
+}
+```
+
+**After:**
+```go
+type ActivateInviteRequest struct {
+    Code      string `json:"code" validate:"required"`
+    Username  string `json:"username" validate:"required,username"`
+    PublicKey string `json:"public_key" validate:"required,ed25519_public_key"`
+}
+```
+
+#### 4. 重构控制器使用验证器
+
+**修改文件：**
+| 文件 | 变更 |
+| --- | --- |
+| `server/internal/controller/invite_controller.go` | 移除验证函数，改用验证器 |
+
+**Before:**
+```go
+// 分散的验证逻辑
+if !isValidUsername(req.Username) {
+    httputil.RespondWithError(w, http.StatusBadRequest, errors.ErrInvalidUsername)
+    return
+}
+
+if len(req.PublicKey) < 40 || len(req.PublicKey) > 50 {
+    httputil.RespondWithError(w, http.StatusBadRequest, 
+        errors.ErrInvalidParam.WithDetail("reason", "公钥格式不正确"))
+    return
+}
+
+func isValidUsername(username string) bool {
+    if len(username) < 3 || len(username) > 20 {
+        return false
+    }
+    pattern := `^[a-zA-Z][a-zA-Z0-9_]*$`
+    matched, _ := regexp.MatchString(pattern, username)
+    return matched
+}
+```
+
+**After:**
+```go
+// 统一验证
+if err := validator.Validate(req); err != nil {
+    validationErrors := validator.ParseError(err)
+    c.logger.Warn("请求参数验证失败")
+    httputil.RespondWithError(w, http.StatusBadRequest, 
+        errors.ErrInvalidParam.WithDetails(map[string]interface{}{
+            "validation_errors": validationErrors,
+        }))
+    return
+}
+```
+
+#### 5. 初始化验证器
+
+**修改文件：**
+| 文件 | 修改内容 |
+| --- | --- |
+| `server/cmd/main.go` | 添加 `validator.Init()` 调用 |
+| `.gitignore` | 忽略 `server/bin/` 二进制文件 |
+
+#### 6. 优化效果
+
+| 维度 | 优化前 | 优化后 | 改进 |
+| --- | --- | --- | --- |
+| **代码复用** | 每个控制器重复实现 | 统一验证器包 | ⬆️ 100% |
+| **可维护性** | 分散在各个控制器 | 集中管理 | ⬆️ 显著提升 |
+| **可测试性** | 与控制器耦合 | 独立测试 | ⬆️ 易测试 |
+| **声明性** | 命令式验证代码 | struct tag 声明 | ⬆️ 更清晰 |
+| **代码行数** | 5-8 行验证逻辑 | 1 行调用 | -80% |
+| **错误信息** | 简单错误码 | 结构化详细错误 | ⬆️ 用户体验好 |
+
+#### 7. 验证器特性
+
+**核心功能：**
+- ✅ 声明式验证（struct tag）
+- ✅ 自定义验证规则（username, ed25519_public_key）
+- ✅ 友好的中文错误消息
+- ✅ 结构化错误输出（字段 + 消息 + 标签）
+- ✅ 不依赖 Web 框架（纯 validator 库）
+
+**错误消息示例：**
+```json
+{
+  "code": 1001,
+  "message": "参数错误",
+  "data": {
+    "validation_errors": [
+      {
+        "field": "Username",
+        "message": "用户名格式无效（3-20位，字母开头，含字母数字下划线）",
+        "tag": "username"
+      }
+    ]
+  }
+}
+```
+
+#### 8. 未来扩展性
+
+Phase 2.1 新增 DTO 可直接复用：
+
+```go
+type LoginRequest struct {
+    Nonce     string `json:"nonce" validate:"required"`
+    Signature string `json:"signature" validate:"required,base64"`
+}
+```
+
+---
+

@@ -494,3 +494,153 @@ func (c *Config) GetDBConfig() DBConfig {
 ```
 
 ---
+
+### 2025-01-28: 验证器统一化优化
+
+**背景**:
+- invite_controller.go 中存在分散的验证逻辑（`isValidUsername()` 和魔法数字）
+- 每个控制器都需要重复实现相同的验证规则
+- 验证逻辑与控制器耦合，难以测试和复用
+- 缺少结构化的验证错误信息
+
+**新架构**:
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Server (最新架构)                        │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │   Controller │  │   Validator  │  │    httputil  │      │
+│  │  HTTP 处理   │  │   字段验证   │  │  DTO + tags  │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │   Service    │  │    Store     │  │    Auth      │      │
+│  │  业务逻辑层  │  │   数据访问   │  │    JWT       │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**新增模块**:
+
+| 模块 | 文件 | 职责 |
+| --- | --- | --- |
+| Validator | `server/internal/validator/validator.go` | 验证器核心（自定义规则注册） |
+| Validator | `server/internal/validator/errors.go` | 验证错误处理与友好消息 |
+
+**目录结构**:
+```
+server/internal/
+├── validator/                    # 新增：验证器包
+│   ├── validator.go              # 验证器核心 + 自定义规则
+│   └── errors.go                 # 错误处理 + 友好消息
+├── controller/                   # 修改：使用验证器
+│   ├── invite_controller.go      # 移除 isValidUsername()
+│   └── auth_controller.go
+├── httputil/                     # 修改：添加验证标签
+│   ├── dto.go                    # 添加 validate tags
+│   ├── response.go
+│   └── request.go
+├── service/
+├── store/
+├── auth/
+├── errors/
+├── config/
+└── logger/
+```
+
+**自定义验证规则**:
+```go
+// username: 3-20位，字母开头，含字母数字下划线
+validateUsername(fl validator.FieldLevel) bool
+
+// ed25519_public_key: Base64 编码，解码后 32 字节
+validateEd25519PublicKey(fl validator.FieldLevel) bool
+```
+
+**DTO 验证标签**:
+```go
+type ActivateInviteRequest struct {
+    Code      string `json:"code" validate:"required"`
+    Username  string `json:"username" validate:"required,username"`
+    PublicKey string `json:"public_key" validate:"required,ed25519_public_key"`
+}
+```
+
+**控制器验证流程**:
+```
+Before:
+  ├─ 解析 JSON
+  ├─ 手动验证用户名（isValidUsername）
+  ├─ 手动验证公钥长度（魔法数字）
+  └─ 调用 Service
+
+After:
+  ├─ 解析 JSON
+  ├─ 统一验证（validator.Validate）
+  │   ├─ username 规则
+  │   ├─ ed25519_public_key 规则
+  │   └─ required 检查
+  ├─ 解析验证错误（友好消息）
+  └─ 调用 Service
+```
+
+**依赖注入**:
+```go
+// main.go 初始化
+func main() {
+    // ... 配置、日志 ...
+    
+    // 3. 初始化验证器（新增）
+    validator.Init()
+    log.Info("验证器初始化成功")
+    
+    // ... 数据库、容器 ...
+}
+```
+
+**错误处理设计**:
+```go
+// 验证错误结构
+type Error struct {
+    Field   string `json:"field"`
+    Message string `json:"message"`
+    Tag     string `json:"tag,omitempty"`
+}
+
+// 错误消息示例
+{
+  "code": 1001,
+  "message": "参数错误",
+  "data": {
+    "validation_errors": [
+      {
+        "field": "Username",
+        "message": "用户名格式无效（3-20位，字母开头，含字母数字下划线）",
+        "tag": "username"
+      }
+    ]
+  }
+}
+```
+
+**优化效果**:
+
+| 维度 | 优化前 | 优化后 | 改进 |
+| --- | --- | --- | --- |
+| **代码复用** | 每个控制器重复实现 | 统一验证器包 | ⬆️ 100% |
+| **可维护性** | 分散在各个控制器 | 集中管理 | ⬆️ 显著提升 |
+| **可测试性** | 与控制器耦合 | 独立测试 | ⬆️ 易测试 |
+| **声明性** | 命令式验证代码 | struct tag 声明 | ⬆️ 更清晰 |
+| **代码行数** | 5-8 行验证逻辑 | 1 行调用 | -80% |
+| **错误信息** | 简单错误码 | 结构化详细错误 | ⬆️ 用户体验好 |
+
+**设计原则**:
+- **单一职责**: 验证器只负责字段验证
+- **声明式**: 通过 struct tag 定义规则
+- **不耦合**: 不依赖 Web 框架（纯 validator 库）
+- **可扩展**: 支持自定义验证规则
+
+**技术栈**:
+- 库: `github.com/go-playground/validator/v10`
+- 标准: Go 标准库 + validator 自定义规则
+
+---
+

@@ -2,12 +2,12 @@ package controller
 
 import (
 	"net/http"
-	"regexp"
 
 	"github.com/LucienVen/charline/pkg/logger"
 	"github.com/LucienVen/charline/server/internal/errors"
 	"github.com/LucienVen/charline/server/internal/httputil"
 	"github.com/LucienVen/charline/server/internal/service"
+	"github.com/LucienVen/charline/server/internal/validator"
 	"go.uber.org/zap"
 )
 
@@ -36,15 +36,15 @@ func (c *InviteController) ActivateInviteCode(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// 验证用户名格式
-	if !isValidUsername(req.Username) {
-		httputil.RespondWithError(w, http.StatusBadRequest, errors.ErrInvalidUsername)
-		return
-	}
-
-	// 验证公钥格式 (Base64 编码的 Ed25519 公钥约 44 字符)
-	if len(req.PublicKey) < 40 || len(req.PublicKey) > 50 {
-		httputil.RespondWithError(w, http.StatusBadRequest, errors.ErrInvalidParam.WithDetail("reason", "公钥格式不正确"))
+	// 统一验证
+	if err := validator.Validate(req); err != nil {
+		validationErrors := validator.ParseError(err)
+		c.logger.Warn("请求参数验证失败",
+			zap.Any("validation_errors", validationErrors))
+		httputil.RespondWithError(w, http.StatusBadRequest,
+			errors.ErrInvalidParam.WithDetails(map[string]interface{}{
+				"validation_errors": validationErrors,
+			}))
 		return
 	}
 
@@ -85,15 +85,4 @@ func (c *InviteController) GenerateInviteCode(w http.ResponseWriter, r *http.Req
 	httputil.RespondSuccess(w, &httputil.GenerateInviteCodeResponse{
 		Code: code,
 	})
-}
-
-// isValidUsername 验证用户名格式
-// 规则: 3-20个字符，字母开头，仅包含字母、数字、下划线
-func isValidUsername(username string) bool {
-	if len(username) < 3 || len(username) > 20 {
-		return false
-	}
-	pattern := `^[a-zA-Z][a-zA-Z0-9_]*$`
-	matched, _ := regexp.MatchString(pattern, username)
-	return matched
 }

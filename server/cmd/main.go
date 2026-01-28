@@ -14,6 +14,7 @@ import (
 	"github.com/LucienVen/charline/server/internal/container"
 	serverlogger "github.com/LucienVen/charline/server/internal/logger"
 	"github.com/LucienVen/charline/server/internal/router"
+	"github.com/LucienVen/charline/server/internal/validator"
 	"go.uber.org/zap"
 )
 
@@ -33,7 +34,11 @@ func main() {
 	}
 	defer log.Sync()
 
-	// 3. 初始化数据库
+	// 3. 初始化验证器
+	validator.Init()
+	log.Info("验证器初始化成功")
+
+	// 4. 初始化数据库
 	dbCfg := cfg.GetDBConfig()
 	db, err := sqlite.New(sqlite.Config{
 		DataDir: dbCfg.DataDir,
@@ -46,7 +51,7 @@ func main() {
 	defer db.Close()
 	log.Info("数据库连接成功", zap.String("path", db.Path()))
 
-	// 4. 初始化容器（包含所有依赖）
+	// 5. 初始化容器（包含所有依赖）
 	container, err := container.NewContainer(cfg, db, log)
 	if err != nil {
 		log.Error("容器初始化失败", zap.Error(err))
@@ -54,14 +59,14 @@ func main() {
 	}
 	log.Info("服务层、控制器层初始化成功")
 
-	// 5. 记录启动信息
+	// 6. 记录启动信息
 	log.Info("Server starting",
 		zap.String("address", cfg.GetAddress()),
 		zap.String("env", cfg.Env),
 		zap.String("log_level", cfg.LogLevel),
 	)
 
-	// 6. 创建路由
+	// 7. 创建路由
 	r := router.NewRouter(&router.Routes{
 		Controllers: &router.Controllers{
 			Invite: container.InviteCtrl,
@@ -73,13 +78,13 @@ func main() {
 		},
 	})
 
-	// 7. 创建 HTTP 服务器
+	// 8. 创建 HTTP 服务器
 	server := &http.Server{
 		Addr:    cfg.GetAddress(),
 		Handler: r,
 	}
 
-	// 8. 启动服务器
+	// 9. 启动服务器
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Error("Server error", zap.Error(err))
@@ -88,12 +93,12 @@ func main() {
 
 	log.Info("Server started", zap.String("address", cfg.GetAddress()))
 
-	// 9. 等待中断信号
+	// 10. 等待中断信号
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	// 10. 优雅关闭
+	// 11. 优雅关闭
 	log.Info("Server shutting down")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
