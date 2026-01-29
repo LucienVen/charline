@@ -897,3 +897,170 @@ type SessionManager interface {
 - `thinking-challenge/response-to-auth-challenge.md` - 架构重整方案
 
 ---
+
+---
+
+### 2026-01-29: Phase 3.1 规划完成 - WebSocket 基础连接
+
+**目标**: 完成 Phase 3.1 WebSocket 基础连接的详细规划文档
+
+#### 规划文档产出
+
+**1. 实施计划文档**
+- 文件位置: `nimbalyst-local/plans/phase3-1-websocket-basic-connection.md`
+- 文档类型: 正式 Plan 文档（带 YAML frontmatter）
+- 规划状态: ready-for-development
+- 优先级: high
+
+**2. 协议规范文档**
+- 文件位置: `memory-bank/websocket-protocol-spec.md`
+- 文档类型: WebSocket 消息协议完整规范
+- 内容: 消息格式、认证流程、心跳机制、错误处理
+
+#### 核心设计要点
+
+**Token 4层架构**:
+```
+Layer 1: Identity Token (Ed25519 私钥)
+         └─ 永久存储，用于签名证明身份
+
+Layer 2: Refresh Token (JWT, 7天有效)
+         └─ 用于获取新的 Session Token
+
+Layer 3: Session Token (内存，连接绑定)
+         └─ WebSocket 连接建立时生成
+
+Layer 4: Resume Token (30秒有效)
+         └─ 断线时下发，用于快速重连
+```
+
+**Session 管理设计**:
+```go
+type Session struct {
+    ID           string
+    UserID       int64
+    DeviceID     string
+    ConnID       string        // WebSocket 连接 ID
+    State        SessionState  // ACTIVE, SUSPENDED, CLOSED
+    CreatedAt    time.Time
+    LastActiveAt time.Time
+    ResumeToken  string        // 断线恢复 Token
+    ResumeExpiry time.Time
+}
+
+type SessionManager interface {
+    Create(userID int64, deviceID string, conn *websocket.Conn) (*Session, error)
+    Get(sessionID string) (*Session, bool)
+    Suspend(sessionID string) (resumeToken string, error)
+    Resume(resumeToken string, conn *websocket.Conn) (*Session, error)
+    Close(sessionID string) error
+}
+```
+
+**连接生命周期**:
+
+1. **首次连接**:
+   ```
+   Client → WebSocket Connect → Server
+   Client ← Challenge (nonce) ← Server
+   Client → Auth (Ed25519 signature) → Server
+   Client ← Session Created ← Server
+   Client ↔ Message Stream ↔ Server
+   ```
+
+2. **心跳保活**:
+   ```
+   Client → Ping (30秒间隔) → Server
+   Client ← Pong ← Server
+   ```
+
+3. **断线恢复**:
+   ```
+   Client ✕ Connection Lost
+   Client → WebSocket Reconnect → Server
+   Client → Resume {resume_token} → Server
+   Client ← Session Restored ← Server
+   ```
+
+#### 实施文件清单
+
+**服务端新增（4个文件）**:
+```
+server/internal/websocket/
+├── server.go      # WebSocket 服务器（Server struct, NewServer, Start, Stop）
+├── conn.go        # 连接封装（Connection struct, ReadLoop, WriteLoop, Close）
+├── handler.go     # 消息处理（MessageHandler, HandleMessage, 路由分发）
+└── pool.go        # 连接池（ConnectionPool, Add, Remove, Get, Broadcast）
+```
+
+**客户端新增（1个文件）**:
+```
+client/internal/websocket/
+└── client.go      # WebSocket 客户端（Client struct, Connect, Authenticate, Send, Receive）
+```
+
+#### WebSocket 消息协议
+
+**消息结构**:
+```json
+{
+  "type": "message_type",
+  "payload": {
+    "field1": "value1",
+    "field2": "value2"
+  },
+  "timestamp": "2026-01-29T10:30:00Z",
+  "request_id": "req-uuid-1234"
+}
+```
+
+**消息类型**:
+- `challenge_request` / `challenge_response` - 认证挑战流程
+- `auth_request` / `auth_response` - Ed25519 签名认证
+- `ping` / `pong` - 心跳保活
+- `error` - 错误处理
+- `close` - 连接关闭
+
+**认证流程**:
+1. 客户端发送 `challenge_request`
+2. 服务端返回 `challenge_response` (含 nonce)
+3. 客户端使用 Ed25519 私钥签名 nonce
+4. 客户端发送 `auth_request` (含 nonce + signature + public_key)
+5. 服务端验证签名，返回 `auth_response` (含 session_id + session_token)
+
+#### 与现有代码关系
+
+| 现有模块        | 保留/修改 | 说明                                 |
+|-----------------|-----------|--------------------------------------|
+| Ed25519 密钥对  | ✅ 保留   | 作为 Identity Token                  |
+| Nonce 签名登录  | ✅ 保留   | 用于 WebSocket 连接认证              |
+| JWT Token       | ⚡ 调整   | 改为 Refresh Token，不再用于每次操作 |
+| /auth/challenge | ⚡ 调整   | 改为 WebSocket 握手阶段调用          |
+| /auth/login     | ⚡ 调整   | 改为 WebSocket 认证消息              |
+
+#### 技术栈
+
+| 组件 | 技术选型 | 版本 |
+|------|---------|------|
+| WebSocket 库 | gorilla/websocket | v1.5.1 |
+| 消息格式 | JSON | - |
+| 认证方式 | Ed25519 PoP | - |
+| Nonce 生成 | crypto/rand | - |
+| Session 存储 | 内存 (map + sync.RWMutex) | - |
+
+#### 设计原则
+
+- **渐进式演进**: Phase 0-2.1 的认证基础完全保留
+- **架构转型**: 从 CLI 工具转向 IM 长连接架构
+- **Session 优先**: 连接建立后靠 Session，不再频繁验证 Token
+- **断线恢复**: 支持快速重连和消息续传
+
+#### 参考文档
+
+- `thinking-challenge/IM-system-auth-challenge.md` - ChatGPT 5.2 挑战
+- `thinking-challenge/response-to-auth-challenge.md` - 架构重整方案
+- `nimbalyst-local/plans/phase3-1-websocket-basic-connection.md` - 实施计划
+- `memory-bank/websocket-protocol-spec.md` - 协议规范
+
+---
+
