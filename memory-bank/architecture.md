@@ -771,3 +771,129 @@ r := router.NewRouter(&router.Routes{
 
 ---
 
+
+### 2025-01-29: Phase 3 架构设计方向
+
+**背景**:
+- ChatGPT 5.2 指出当前架构是 "CLI 工具形态"，缺少 IM 系统核心要素
+- Phase 0-2.1 完成了基础认证，但需要演进到长连接 IM 架构
+
+**新架构**:
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      IM 长连接架构（Phase 3）                 │
+├─────────────────────────────────────────────────────────────┤
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │  WebSocket   │  │   Session    │  │  Protocol    │      │
+│  │  连接管理    │  │   会话管理   │  │  消息协议    │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │  Heartbeat   │  │   Resume     │  │  Connection  │      │
+│  │  心跳保活    │  │   断线恢复   │  │  连接池      │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Token 分层架构**:
+```
+Layer 1: Identity Token (Ed25519 私钥)
+         └─ 永久存储，用于签名证明身份
+
+Layer 2: Refresh Token (JWT, 7天有效)
+         └─ 用于获取新的 Session Token
+
+Layer 3: Session Token (内存，连接绑定)
+         └─ WebSocket 连接建立时生成
+
+Layer 4: Resume Token (30秒有效)
+         └─ 断线时下发，用于快速重连
+```
+
+**Session 管理设计**:
+```go
+type Session struct {
+    ID           string
+    UserID       int64
+    DeviceID     string
+    ConnID       string        // WebSocket 连接 ID
+    State        SessionState  // ACTIVE, SUSPENDED, CLOSED
+    CreatedAt    time.Time
+    LastActiveAt time.Time
+    ResumeToken  string        // 断线恢复 Token
+    ResumeExpiry time.Time
+}
+
+type SessionManager interface {
+    Create(userID int64, deviceID string, conn *websocket.Conn) (*Session, error)
+    Get(sessionID string) (*Session, bool)
+    GetByUser(userID int64) []*Session
+    Suspend(sessionID string) (resumeToken string, error)
+    Resume(resumeToken string, conn *websocket.Conn) (*Session, error)
+    Close(sessionID string) error
+}
+```
+
+**连接生命周期**:
+
+1. **首次连接**:
+   ```
+   Client → WebSocket Connect → Server
+   Client ← Challenge (nonce) ← Server
+   Client → Auth (signature) → Server
+   Client ← Session Created ← Server
+   Client ↔ Message Stream ↔ Server
+   ```
+
+2. **心跳保活**:
+   ```
+   Client → Ping → Server
+   Client ← Pong ← Server
+   ```
+
+3. **断线恢复**:
+   ```
+   Client ✕ Connection Lost
+   Client → WebSocket Reconnect → Server
+   Client → Resume {resume_token} → Server
+   Client ← Session Restored ← Server
+   ```
+
+**Phase 3 实施规划**:
+
+- **Phase 3.1**: WebSocket 基础连接
+  - server/internal/websocket/ (5 个文件)
+  - client/internal/websocket/client.go
+
+- **Phase 3.2**: Session 管理层
+  - server/internal/session/ (4 个文件)
+  - client/internal/session/state.go
+
+- **Phase 3.3**: 心跳与断线检测
+  - server/internal/websocket/heartbeat.go
+  - client/internal/websocket/keepalive.go
+
+- **Phase 3.4**: 自动重连与恢复
+  - server/internal/session/resume.go
+  - client/internal/websocket/reconnect.go
+
+**与现有代码关系**:
+
+| 现有模块        | 保留/修改 | 说明                                 |
+|-----------------|-----------|--------------------------------------|
+| Ed25519 密钥对  | ✅ 保留   | 作为 Identity Token                  |
+| Nonce 签名登录  | ✅ 保留   | 用于 WebSocket 连接认证              |
+| JWT Token       | ⚡ 调整   | 改为 Refresh Token，不再用于每次操作 |
+| /auth/challenge | ⚡ 调整   | 改为 WebSocket 握手阶段调用          |
+| /auth/login     | ⚡ 调整   | 改为 WebSocket 认证消息              |
+
+**设计原则**:
+- **渐进式演进**: Phase 0-2.1 的认证基础完全保留
+- **架构转型**: 从 CLI 工具转向 IM 长连接架构
+- **Session 优先**: 连接建立后靠 Session，不再频繁验证 Token
+- **断线恢复**: 支持快速重连和消息续传
+
+**参考文档**:
+- `thinking-challenge/IM-system-auth-challenge.md` - ChatGPT 5.2 挑战
+- `thinking-challenge/response-to-auth-challenge.md` - 架构重整方案
+
+---

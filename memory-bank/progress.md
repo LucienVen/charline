@@ -5,6 +5,12 @@
 
 ---
 
+[toc]
+
+
+
+
+
 ## 已完成 ✅
 
 ### Phase 0: 项目基础设施（2025-01-15 完成）
@@ -241,55 +247,140 @@ sqlite3 server/data/server.db "SELECT username, public_key FROM users;"
 - 私钥永不网络传输，仅传输公钥
 
 ---
+### Phase 2.1: Nonce 签名登录（2025-01-29 完成）
+
+**目标**: 实现基于 Ed25519 PoP（Proof of Possession）的 Nonce 签名登录认证
+
+#### 认证流程
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant KeyPair as Client<br/>KeyPair
+    participant Challenge as Server<br/>/auth/challenge
+    participant Login as Server<br/>/auth/login
+    participant Nonce as NonceStore
+    participant User as UserStore
+
+    Note over Client,User: 1. 获取挑战
+    Client->>Challenge: GET /api/v1/auth/challenge<br/>(携带旧 Token)
+    Challenge->>User: 根据 Token 获取 userID
+    User-->>Challenge: 返回 userID
+    Challenge->>Nonce: Generate(userID)
+    Nonce-->>Challenge: nonce (32字节, 30秒有效)
+    Challenge-->>Client: {"nonce": "base64..."}
+
+    Note over Client,KeyPair: 2. 客户端签名
+    Client->>KeyPair: 加载私钥
+    KeyPair-->>Client: Ed25519 PrivateKey
+    Client->>Client: Sign(nonce)
+    Note right of Client: Ed25519 签名
+
+    Note over Client,User: 3. 登录验证
+    Client->>Login: POST /api/v1/auth/login<br/>{"nonce": "...", "signature": "..."}
+    Login->>Nonce: Consume(nonce)
+    Note right of Nonce: 原子操作<br/>防重放攻击
+    Nonce-->>Login: userID (消费成功)
+    Login->>User: GetByID(userID)
+    User-->>Login: user (含 public_key)
+    Login->>Login: 验证签名<br/>Ed25519.Verify(publicKey, nonce, signature)
+    Login->>User: UpdateTokenVersion(userID)
+    User-->>Login: newVersion
+    Login->>Login: GenerateToken(userID, newVersion)
+    Login-->>Client: {"token": "eyJhbG...", "version": 2}
+
+    Note over Client: 4. 保存新凭证
+    Client->>Client: UpdateToken(newToken, newVersion)
+    Note right of Client: 保存到<br/>~/.charline/credential.json
+```
+
+#### 服务端新增文件
+
+| 文件 | 描述 |
+| --- | --- |
+| `server/internal/store/nonce_store.go` | Nonce 内存存储（防重放攻击） |
+| `server/internal/store/user.go` | 用户数据访问层 |
+| `server/internal/service/auth_service.go` | 认证业务逻辑（GetChallenge/Login/ValidateToken） |
+| `server/internal/controller/auth_controller.go` | 认证控制器（/challenge、/login 端点） |
+
+#### 服务端修改文件
+
+| 文件 | 修改内容 |
+| --- | --- |
+| `server/internal/router/router.go` | 添加 /auth 路由组 |
+| `server/internal/container/container.go` | 添加 UserStore、NonceStore 依赖注入 |
+| `server/internal/errors/codes.go` | 添加 3 个新错误码（3004-3006） |
+
+#### 客户端新增文件
+
+| 文件 | 描述 |
+| --- | --- |
+| `client/internal/store/token.go` | Token 管理（UpdateToken/GetCurrentToken） |
+| `client/internal/auth/sign.go` | Ed25519 签名功能 |
+| `client/internal/commands/login.go` | Login 命令实现 |
+
+#### 客户端修改文件
+
+| 文件 | 修改内容 |
+| --- | --- |
+| `client/cmd/main.go` | 添加 login 命令处理 |
+
+#### 核心特性
+
+- **Nonce 机制**: 32 字节随机值，30 秒过期，原子消费防重放
+- **Ed25519 签名**: 使用私钥对 nonce 签名，服务端用公钥验证
+- **Token 版本控制**: 每次登录版本号递增，旧 Token 自动失效
+- **安全存储**: 使用 strconv 正确转换 userID（int64 ↔ string）
+
+#### API 端点
+
+- `GET /api/v1/auth/challenge` - 获取登录挑战
+- `POST /api/v1/auth/login` - 登录验证
+- `GET /api/validate` - Token 验证（保持向后兼容）
+
+#### 错误码
+
+| 错误码 | 描述 |
+| --- | --- |
+| 3004 | Nonce 无效（不存在、已使用或已过期） |
+| 3005 | 签名验证失败 |
+| 3006 | 公钥格式无效 |
+
+#### 验证步骤
+
+```bash
+# 1. 启动服务端
+make run-server
+
+# 2. 客户端执行 login
+./bin/charline login
+# ✓ Login 成功！
+#   新凭证版本: 2
+#   Token 已更新
+
+# 3. 验证 Token 版本递增
+cat ~/.charline/credential.json
+# {"token":"eyJhbG...","username":"alice","version":2}
+```
+
+#### 代码统计
+
+```
+服务端新增: 4 个文件
+服务端修改: 3 个文件
+客户端新增: 3 个文件
+客户端修改: 1 个文件
+编译状态: ✅ 成功
+```
+---
 
 ## 当前进行中 🚧
 
-### Phase 2.1: Nonce 签名登录
-
-**目标**: 实现 `/auth login` 命令，基于 Ed25519 PoP（Proof of Possession）认证
-
-**参考文档**: `memory-bank/phase2-1-login-auth.md`
-
-#### 核心流程
-
-```
-1. 客户端读取本地私钥和 token
-2. GET /api/v1/auth/challenge (携带旧 token)
-3. 服务端验证 token，生成随机 nonce (5-30秒有效)
-4. 客户端用私钥签名 nonce
-5. POST /api/v1/auth/login (nonce + signature)
-6. 服务端验签，更新 token 版本
-7. 返回新 token
-```
-
-#### 关键文件
-
-| 客户端新增 | 描述 |
-| --- | --- |
-| `client/internal/commands/login.go` | `/auth login` 命令入口 |
-| `client/internal/store/token.go` | Token 管理（加载/保存） |
-
-| 服务端新增 | 描述 |
-| --- | --- |
-| `server/internal/controller/auth_controller.go` | /challenge 和 /login 端点 |
-| `server/internal/service/auth_service.go` | 认证业务逻辑 |
-| `server/internal/store/nonce_store.go` | Nonce 内存存储（防重放） |
-
-#### 代码审查
-
-详见 `memory-bank/phase2-1-login-auth.md` 第五节「人工代码审查思路」
+暂无进行中的任务。
 
 ---
 
 ## 待办事项 📋
-
-### Phase 2.1: Nonce 签名登录
-- [ ] `server/internal/store/nonce_store.go` - Nonce 内存存储
-- [ ] `server/internal/service/auth_service.go` - Challenge/Login 业务逻辑
-- [ ] `server/internal/controller/auth_controller.go` - /auth/* 端点
-- [ ] `client/internal/commands/login.go` - /auth login 命令
-- [ ] `client/internal/store/token.go` - Token 独立管理
-- [ ] `server/internal/router/router.go` - 添加 /auth/* 路由
 
 ### Phase 3: WebSocket 基础通信
 - [ ] server/internal/websocket/pool.go - 连接池
@@ -811,3 +902,51 @@ Middlewares: []func(http.Handler) http.Handler{
 
 ---
 
+
+---
+
+### Phase 3 架构设计（2025-01-29 完成）
+
+**目标**: 回应 ChatGPT 5.2 挑战，设计 IM 长连接架构
+
+#### 文档产出
+- [x] 创建 `thinking-challenge/response-to-auth-challenge.md` - IM 架构重整方案
+- [x] 设计 Token 分层架构（Identity/Refresh/Session/Resume）
+- [x] 设计 Session 管理层（SessionManager 接口）
+- [x] 设计连接生命周期（首次连接、心跳保活、断线恢复）
+- [x] 规划 Phase 3 实施路径（4 个子阶段）
+
+#### 核心设计
+
+**Token 分层**:
+- Layer 1: Identity Token (Ed25519 私钥，永久)
+- Layer 2: Refresh Token (JWT, 7天)
+- Layer 3: Session Token (内存，连接绑定)
+- Layer 4: Resume Token (30秒，断线恢复)
+
+**Session 管理**:
+- Session 结构（ID, UserID, DeviceID, ConnID, State）
+- SessionManager 接口（Create/Get/Suspend/Resume/Close）
+
+**连接生命周期**:
+- 首次连接：WebSocket + Challenge + Auth
+- 心跳保活：Ping/Pong 机制
+- 断线恢复：Resume Token + Session 恢复
+
+#### 文件规划
+
+**服务端新增（11 个文件）**:
+- `websocket/` - server.go, conn.go, handler.go, heartbeat.go, pool.go
+- `session/` - session.go, manager.go, store.go, resume.go
+- `protocol/` - message.go, codec.go
+
+**客户端新增（5 个文件）**:
+- `websocket/` - client.go, keepalive.go, reconnect.go
+- `session/` - state.go, handler.go
+
+#### 与现有代码关系
+- ✅ 保留：Ed25519 密钥对、Nonce 签名登录
+- ⚡ 调整：JWT Token 改为 Refresh Token
+- ⚡ 调整：HTTP API 改为 WebSocket 消息协议
+
+---
