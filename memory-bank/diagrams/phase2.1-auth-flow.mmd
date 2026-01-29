@@ -1,0 +1,42 @@
+# Phase 2.1: Nonce 签名登录认证流程
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant KeyPair as Client<br/>KeyPair
+    participant Challenge as Server<br/>/auth/challenge
+    participant Login as Server<br/>/auth/login
+    participant Nonce as NonceStore
+    participant User as UserStore
+
+    Note over Client,User: 1. 获取挑战
+    Client->>Challenge: GET /api/v1/auth/challenge<br/>(携带旧 Token)
+    Challenge->>User: 根据 Token 获取 userID
+    User-->>Challenge: 返回 userID
+    Challenge->>Nonce: Generate(userID)
+    Nonce-->>Challenge: nonce (32字节, 30秒有效)
+    Challenge-->>Client: {"nonce": "base64..."}
+
+    Note over Client,KeyPair: 2. 客户端签名
+    Client->>KeyPair: 加载私钥
+    KeyPair-->>Client: Ed25519 PrivateKey
+    Client->>Client: Sign(nonce)
+    Note right of Client: Ed25519 签名
+
+    Note over Client,User: 3. 登录验证
+    Client->>Login: POST /api/v1/auth/login<br/>{"nonce": "...", "signature": "..."}
+    Login->>Nonce: Consume(nonce)
+    Note right of Nonce: 原子操作<br/>防重放攻击
+    Nonce-->>Login: userID (消费成功)
+    Login->>User: GetByID(userID)
+    User-->>Login: user (含 public_key)
+    Login->>Login: 验证签名<br/>Ed25519.Verify(publicKey, nonce, signature)
+    Login->>User: UpdateTokenVersion(userID)
+    User-->>Login: newVersion
+    Login->>Login: GenerateToken(userID, newVersion)
+    Login-->>Client: {"token": "eyJhbG...", "version": 2}
+
+    Note over Client: 4. 保存新凭证
+    Client->>Client: UpdateToken(newToken, newVersion)
+    Note right of Client: 保存到<br/>~/.charline/credential.json
+```
