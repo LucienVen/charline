@@ -46,4 +46,12 @@ test:
 # 代码检查
 lint:
 	@echo "==> 代码检查..."
-	golangci-lint run ./...
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+		echo "检查服务端代码..."; \
+		(cd server && golangci-lint run ./...); \
+		echo "检查客户端代码..."; \
+		(cd client && golangci-lint run ./...); \
+	else \
+		echo "⚠️  golangci-lint 未安装，跳过代码检查"; \
+		echo "安装方法：brew install golangci-lint 或 go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
+	fi

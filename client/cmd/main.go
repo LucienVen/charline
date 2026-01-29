@@ -49,6 +49,9 @@ func main() {
 	case "join":
 		handleJoin(log, cfg, cmdArgs)
 
+	case "login":
+		handleLogin(log, cfg, cmdArgs)
+
 	default:
 		log.Warn("Unknown command", zap.String("command", command))
 		fmt.Printf("Unknown command: %s\n", command)
@@ -122,6 +125,40 @@ func handleJoin(log *pkglogger.Logger, cfg *config.Config, args []string) {
 	fmt.Printf("  凭证已保存到 ~/.charline/\n")
 }
 
+func handleLogin(log *pkglogger.Logger, cfg *config.Config, args []string) {
+	// login 命令不需要额外参数
+	if len(args) != 0 {
+		fmt.Println("Usage: charline login")
+		os.Exit(1)
+	}
+
+	log.Info("Executing login command")
+
+	// 构造 Login 配置
+	loginCfg := &commands.LoginConfig{
+		ServerURL: cfg.ServerURL,
+	}
+
+	// 执行 login 流程
+	result, err := commands.Login(loginCfg)
+	if err != nil {
+		log.Error("Login failed",
+			zap.Error(err),
+		)
+		fmt.Fprintf(os.Stderr, "Login 失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 成功
+	log.Info("Login successful",
+		zap.Int("version", result.Version),
+	)
+
+	fmt.Printf("✓ Login 成功！\n")
+	fmt.Printf("  新凭证版本: %d\n", result.Version)
+	fmt.Printf("  Token 已更新\n")
+}
+
 func printHelp() {
 	fmt.Println("CharLine Client")
 	fmt.Println("Usage: charline <command> [args]")
@@ -129,4 +166,5 @@ func printHelp() {
 	fmt.Println("Commands:")
 	fmt.Println("  hello                          - Print hello message")
 	fmt.Println("  join <invite-code> <username>  - Join with invitation code")
+	fmt.Println("  login                          - Login with existing credentials")
 }

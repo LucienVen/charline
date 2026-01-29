@@ -43,7 +43,13 @@ func NewRouter(routes *Routes) chi.Router {
 			r.Post("/activate", routes.Controllers.Invite.ActivateInviteCode)
 		})
 
-		// 认证相关路由
+		// 认证相关路由（Phase 2.1）
+		r.Route("/auth", func(r chi.Router) {
+			r.Get("/challenge", routes.Controllers.Auth.GetChallenge) // 获取登录挑战
+			r.Post("/login", routes.Controllers.Auth.Login)           // 登录验证
+		})
+
+		// Token 验证路由（保持向后兼容）
 		r.Get("/validate", routes.Controllers.Auth.ValidateToken)
 	})
 

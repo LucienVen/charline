@@ -35,9 +35,12 @@ const (
 	ErrCodeUserExists     = 2005 // 用户已存在
 
 	// 3xxx - 认证/授权错误
-	ErrCodeUnauthorized = 3001 // 未授权
-	ErrCodeTokenExpired = 3002 // Token 已过期
-	ErrCodeTokenInvalid = 3003 // Token 无效
+	ErrCodeUnauthorized     = 3001 // 未授权
+	ErrCodeTokenExpired     = 3002 // Token 已过期
+	ErrCodeTokenInvalid     = 3003 // Token 无效
+	ErrCodeInvalidNonce     = 3004 // Nonce 无效
+	ErrCodeSignatureInvalid = 3005 // 签名无效
+	ErrCodeInvalidPublicKey = 3006 // 公钥无效
 
 	// 5xxx - 系统内部错误
 	ErrCodeSystemError = 5000 // 系统错误
@@ -61,6 +64,9 @@ var codeMessages = map[int]string{
 	ErrCodeUnauthorized:      "未授权",
 	ErrCodeTokenExpired:      "Token 已过期",
 	ErrCodeTokenInvalid:      "Token 无效",
+	ErrCodeInvalidNonce:      "Nonce 无效",
+	ErrCodeSignatureInvalid:  "签名无效",
+	ErrCodeInvalidPublicKey:  "公钥无效",
 	ErrCodeSystemError:       "系统错误",
 }
 
@@ -73,7 +79,7 @@ type BizError struct {
 	Code    int
 	Message string
 	Details map[string]interface{} // 详细信息（通过 RespondError 放入 data）
-	cause   error                 // 原始错误，用于日志，不暴露给客户端
+	cause   error                   // 原始错误，用于日志，不暴露给客户端
 }
 
 // Error 实现 error 接口
@@ -178,9 +184,12 @@ var (
 
 // 认证错误
 var (
-	ErrUnauthorized = &BizError{Code: ErrCodeUnauthorized, Message: "未授权"}
-	ErrTokenExpired = &BizError{Code: ErrCodeTokenExpired, Message: "Token 已过期"}
-	ErrTokenInvalid = &BizError{Code: ErrCodeTokenInvalid, Message: "Token 无效"}
+	ErrUnauthorized     = &BizError{Code: ErrCodeUnauthorized, Message: "未授权"}
+	ErrTokenExpired     = &BizError{Code: ErrCodeTokenExpired, Message: "Token 已过期"}
+	ErrTokenInvalid     = &BizError{Code: ErrCodeTokenInvalid, Message: "Token 无效"}
+	ErrInvalidNonce     = &BizError{Code: ErrCodeInvalidNonce, Message: "Nonce 无效"}
+	ErrSignatureInvalid = &BizError{Code: ErrCodeSignatureInvalid, Message: "签名无效"}
+	ErrInvalidPublicKey = &BizError{Code: ErrCodeInvalidPublicKey, Message: "公钥无效"}
 )
 
 // 系统错误

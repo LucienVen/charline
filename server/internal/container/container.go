@@ -23,10 +23,12 @@ func NewContainer(cfg *config.Config, db *sqlite.DB, log *logger.Logger) (*Conta
 
 	// 初始化存储层
 	inviteStore := store.NewInviteStore(db, log)
+	userStore := store.NewUserStore(db, log)
+	nonceStore := store.NewNonceStore()
 
 	// 初始化服务层
 	inviteService := service.NewInviteService(inviteStore, jwtManager, log)
-	authService := service.NewAuthService(jwtManager, log)
+	authService := service.NewAuthService(jwtManager, userStore, nonceStore, log)
 
 	// 初始化控制器层
 	inviteCtrl := controller.NewInviteController(inviteService, log)
