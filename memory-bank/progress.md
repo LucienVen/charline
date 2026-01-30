@@ -1101,3 +1101,65 @@ client/internal/websocket/
 ```
 
 ---
+
+### Phase 3.1: WebSocket 基础连接（2026-01-30 完成）
+
+#### 服务端 WebSocket 实现
+- [x] WebSocket 服务器架构（server.go）
+  - [x] gorilla/websocket v1.5.1 集成
+  - [x] HTTP 升级到 WebSocket
+  - [x] 连接封装（conn.go）
+  - [x] 读写分离（ReadLoop/WriteLoop）
+- [x] 消息协议定义（protocol.go）
+  - [x] JSON 序列化/反序列化
+  - [x] 消息类型常量
+  - [x] 载荷结构体定义
+- [x] 消息处理器（handler.go）
+  - [x] 认证流程处理
+  - [x] Ping/Pong 心跳
+  - [x] 错误消息发送
+- [x] 连接池管理（pool.go）
+  - [x] 动态连接管理
+  - [x] 用户ID索引
+  - [x] 线程安全操作
+- [x] 路由集成（router.go）
+  - [x] /ws 端点注册
+  - [x] 中间件支持
+
+#### 客户端 WebSocket 实现
+- [x] WebSocket 客户端（client.go）
+  - [x] 连接建立
+  - [x] 认证流程
+  - [x] 读写循环
+  - [x] 心跳机制
+- [x] Connect 命令（commands/connect.go）
+  - [x] 密钥对加载
+  - [x] 签名器集成
+  - [x] 优雅断开
+
+#### 问题修复
+- [x] 中间件 Hijacker 接口支持
+  - 问题: responseRecorder 未实现 http.Hijacker
+  - 解决: 添加 Hijack() 方法转发
+- [x] goroutine 启动顺序
+  - 问题: sendChallenge 在 WriteLoop 启动前调用
+  - 解决: 先启动 WriteLoop,再发送挑战
+
+#### 验证测试
+- [x] 基础连接测试
+  - WebSocket 升级成功
+  - 挑战消息接收
+  - 消息格式验证
+- [x] 服务器日志验证
+  - 路由注册确认
+  - 连接建立日志
+  - 消息发送日志
+
+#### 文档
+- [x] phase3-websocket/websocket-knowledge.md - 技术知识库
+- [x] phase3-websocket/websocket-verification.md - 验证指南
+- [x] phase3-websocket/verification-result.md - 验证结果
+- [x] phase3-websocket/README.md - 目录索引
+
+---
+

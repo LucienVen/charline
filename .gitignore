@@ -49,3 +49,5 @@ server/data/
 client/data/
 
 server/bin/
+client/bin/
+.DS_Store

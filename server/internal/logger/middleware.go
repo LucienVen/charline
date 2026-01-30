@@ -1,6 +1,8 @@
 package logger
 
 import (
+	"bufio"
+	"net"
 	"net/http"
 	"time"
 
@@ -81,6 +83,14 @@ type responseRecorder struct {
 func (r *responseRecorder) WriteHeader(statusCode int) {
 	r.statusCode = statusCode
 	r.ResponseWriter.WriteHeader(statusCode)
+}
+
+// Hijack 实现 http.Hijacker 接口（WebSocket 需要）
+func (r *responseRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hijacker, ok := r.ResponseWriter.(http.Hijacker); ok {
+		return hijacker.Hijack()
+	}
+	return nil, nil, http.ErrNotSupported
 }
 
 // getClientIP 获取客户端 IP

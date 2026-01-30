@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/base64"
 	"fmt"
 )
@@ -30,4 +31,12 @@ func (s *Signer) Sign(nonce string) (string, error) {
 
 	// 返回 base64 编码的签名
 	return base64.StdEncoding.EncodeToString(signature), nil
+}
+
+// PublicKeyHex 返回公钥的十六进制编码
+func (s *Signer) PublicKeyHex() string {
+	if s.keyPair == nil || s.keyPair.PublicKey == nil {
+		return ""
+	}
+	return hex.EncodeToString(s.keyPair.PublicKey)
 }

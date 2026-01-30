@@ -59,6 +59,7 @@ func main() {
 		os.Exit(1)
 	}
 	log.Info("服务层、控制器层初始化成功")
+	log.Info("WebSocket 服务器初始化成功")
 
 	// 6. 初始化中间件
 	recovery := middleware.NewRecovery(log)
@@ -77,7 +78,8 @@ func main() {
 			Invite: container.InviteCtrl,
 			Auth:   container.AuthCtrl,
 		},
-		Logger: log,
+		WSServer: container.WSServer, // WebSocket 服务器
+		Logger:   log,
 		Middlewares: []func(http.Handler) http.Handler{
 			recovery.Middleware,             // Panic 恢复（最外层）
 			serverlogger.RequestLogger(log), // 请求日志

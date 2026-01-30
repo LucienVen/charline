@@ -19,13 +19,13 @@
 
 **在编写任何代码之前，你必须：**
 
-1. 阅读：`memory-bank/@document-navigation.md`
+1. 阅读：`memory-bank/document-navigation.md`
 2. 根据该导航文件，**逐一阅读其中列出的所有 .md 文档**
 3. 在完全理解文档内容之前，不允许开始写代码
 
 > 这是硬性规则，不得跳过，不得假设，不得凭经验替代。
 
-4. Claude's plan 读取的 `memory-bank/@implementation-plan.md`， 无需在每轮对话后打印出来
+4. Claude's plan 读取的 `memory-bank/implementation-plan.md`， 无需在每轮对话后打印出来
 4. 根据具体指令，才进行下一步/下一阶段规划的构思。每次都只需要完成当前的指令，解决当前阶段的问题
 4. ### 行为约束
 
@@ -209,12 +209,12 @@ internal/
 
 在以下文件中维护记录：
 
-| 文件                            | 用途             |
-| ------------------------------- | ---------------- |
-| memory-bank/@design-document.md | 基础设计想法     |
-| memory-bank/@tech-stack.md      | 技术栈说明       |
-| memory-bank/@architecture.md    | 架构与里程碑记录 |
-| memory-bank/@progress.md        | 已完成步骤追踪   |
+| 文件                           | 用途             |
+| ------------------------------ | ---------------- |
+| memory-bank/design-document.md | 基础设计想法     |
+| memory-bank/tech-stack.md      | 技术栈说明       |
+| memory-bank/architecture.md    | 架构与里程碑记录 |
+| memory-bank/progress.md        | 已完成步骤追踪   |
 
 **每完成一个阶段性任务，必须更新对应文档。**
 

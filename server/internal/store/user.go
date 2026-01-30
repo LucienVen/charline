@@ -94,3 +94,23 @@ func (s *UserStore) UpdateTokenVersion(userID int64, newVersion int) *apperrors.
 		zap.Int("new_version", newVersion))
 	return nil
 }
+// GetByPublicKey 根据公钥获取用户
+func (s *UserStore) GetByPublicKey(publicKey string) (*User, error) {
+	var user User
+	err := s.db.QueryRow(
+		"SELECT id, username, public_key, token_version, created_at, last_login FROM users WHERE public_key = ?",
+		publicKey,
+	).Scan(&user.ID, &user.Username, &user.PublicKey, &user.TokenVersion, &user.CreatedAt, &user.LastLogin)
+
+	if err == sql.ErrNoRows {
+		return nil, apperrors.ErrUserNotFound
+	}
+	if err != nil {
+		s.logger.Error("查询用户失败",
+			zap.String("public_key", publicKey),
+			zap.String("error", err.Error()))
+		return nil, err
+	}
+
+	return &user, nil
+}

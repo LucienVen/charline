@@ -613,7 +613,7 @@ client/
 
 ## 开发注意事项
 
-1. **文档同步**: 每完成一个阶段，更新 `memory-bank/@architecture.md` 和 `memory-bank/@progress.md`
+1. **文档同步**: 每完成一个阶段，更新 `memory-bank/architecture.md` 和 `memory-bank/progress.md`
 
 2. **代码质量**:
    - 使用 `golangci-lint` 检查

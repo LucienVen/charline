@@ -52,6 +52,9 @@ func main() {
 	case "login":
 		handleLogin(log, cfg, cmdArgs)
 
+	case "connect":
+		handleConnect(log, cfg, cmdArgs)
+
 	default:
 		log.Warn("Unknown command", zap.String("command", command))
 		fmt.Printf("Unknown command: %s\n", command)
@@ -159,6 +162,39 @@ func handleLogin(log *pkglogger.Logger, cfg *config.Config, args []string) {
 	fmt.Printf("  Token 已更新\n")
 }
 
+func handleConnect(log *pkglogger.Logger, cfg *config.Config, args []string) {
+	// connect 命令不需要额外参数
+	if len(args) != 0 {
+		fmt.Println("Usage: charline connect")
+		os.Exit(1)
+	}
+
+	log.Info("Executing connect command")
+
+	// 构造 WebSocket URL
+	wsURL := fmt.Sprintf("ws://%s/ws", cfg.ServerURL)
+
+	// 构造 Connect 配置
+	connectCfg := &commands.ConnectConfig{
+		ServerURL: wsURL,
+	}
+
+	// 执行 connect 流程
+	result, err := commands.Connect(connectCfg)
+	if err != nil {
+		log.Error("Connect failed",
+			zap.Error(err),
+		)
+		fmt.Fprintf(os.Stderr, "Connect 失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 成功
+	log.Info("Connect completed",
+		zap.Int64("user_id", result.UserID),
+	)
+}
+
 func printHelp() {
 	fmt.Println("CharLine Client")
 	fmt.Println("Usage: charline <command> [args]")
@@ -167,4 +203,5 @@ func printHelp() {
 	fmt.Println("  hello                          - Print hello message")
 	fmt.Println("  join <invite-code> <username>  - Join with invitation code")
 	fmt.Println("  login                          - Login with existing credentials")
+	fmt.Println("  connect                        - Connect to server via WebSocket")
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/LucienVen/charline/pkg/logger"
 	"github.com/LucienVen/charline/server/internal/controller"
+	"github.com/LucienVen/charline/server/internal/websocket"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
@@ -19,6 +20,7 @@ type Controllers struct {
 // Routes 路由依赖注入结构
 type Routes struct {
 	Controllers *Controllers                      // 控制器集合
+	WSServer    *websocket.Server                 // WebSocket 服务器
 	Logger      *logger.Logger                    // 日志
 	Middlewares []func(http.Handler) http.Handler // 全局中间件
 }
@@ -34,6 +36,9 @@ func NewRouter(routes *Routes) chi.Router {
 
 	// 健康检查路由（无需认证）
 	r.Get("/health", healthHandler)
+
+	// WebSocket 路由（Phase 3.1）
+	r.Get("/ws", routes.WSServer.HandleConnection)
 
 	// API 路由分组
 	r.Route("/api/v1", func(r chi.Router) {
