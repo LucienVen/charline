@@ -33,10 +33,13 @@
 
 ## 三、专题文档（涉及相关功能时必读）
 
+
 | 文档名 | 描述 | 作者 | 用途 |
 | --- | --- | --- | --- |
 | `charline_jwt_ed25519_auth.md` | 认证方案总结 | lxt | JWT + Ed25519 私钥签名认证方案 |
 | `phase2-1-login-auth.md` | Phase 2.1 实现记录 | claude code | Nonce 签名登录实现与审查 |
+| `websocket-protocol-spec.md` | WebSocket 协议规范 | claude code | WebSocket 消息格式、认证流程、心跳机制 |
+| `session-management-faq.md` | Session 管理 FAQ | claude code | 多设备、Resume Token、断线检测常见问题 |
 | `code-optimization-todo.md` | 代码优化待办 | claude code | golangci-lint 检查发现的代码质量问题 |
 | `thinking-challenge/response-to-auth-challenge.md` | IM 架构重整方案 | claude code | 回应 ChatGPT 5.2 挑战，Phase 3 设计方向 |
 
@@ -87,4 +90,4 @@
 
 ---
 
-**最后更新时间**: 2025-01-29
+**最后更新时间**: 2026-02-02

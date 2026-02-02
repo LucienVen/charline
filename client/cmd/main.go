@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/LucienVen/charline/client/internal/commands"
 	"github.com/LucienVen/charline/client/internal/config"
@@ -172,7 +173,14 @@ func handleConnect(log *pkglogger.Logger, cfg *config.Config, args []string) {
 	log.Info("Executing connect command")
 
 	// 构造 WebSocket URL
-	wsURL := fmt.Sprintf("ws://%s/ws", cfg.ServerURL)
+	// 构造 WebSocket URL（移除 http:// 或 https:// 前缀）
+	serverAddr := cfg.ServerURL
+	serverAddr = strings.TrimPrefix(serverAddr, "http://")
+	serverAddr = strings.TrimPrefix(serverAddr, "https://")
+	
+	// 构造 ws:// URL
+	wsURL := fmt.Sprintf("ws://%s/ws", serverAddr)
+	log.Info("Connecting to WebSocket", zap.String("url", wsURL))
 
 	// 构造 Connect 配置
 	connectCfg := &commands.ConnectConfig{
