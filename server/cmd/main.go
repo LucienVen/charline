@@ -27,6 +27,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	// 打印数据库配置路径
+	fmt.Printf("=== 配置信息 ===\n")
+	fmt.Printf("数据库配置路径 (cfg.DBPath): %s\n", cfg.DBPath)
+	dbCfg := cfg.GetDBConfig()
+	fmt.Printf("数据库目录 (DataDir): %s\n", dbCfg.DataDir)
+	fmt.Printf("数据库文件名 (Name): %s\n", dbCfg.Name)
+	fmt.Printf("===============\n\n")
+
 	// 2. 初始化日志
 	log, err := serverlogger.New(cfg)
 	if err != nil {
@@ -40,7 +48,6 @@ func main() {
 	log.Info("验证器初始化成功")
 
 	// 4. 初始化数据库
-	dbCfg := cfg.GetDBConfig()
 	db, err := sqlite.New(sqlite.Config{
 		DataDir: dbCfg.DataDir,
 		Name:    dbCfg.Name,
@@ -101,19 +108,19 @@ func main() {
 
 	log.Info("Server started", zap.String("address", cfg.GetAddress()))
 
-	// 11. 等待中断信号
+	// 11. 优雅关闭
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	// 12. 优雅关闭
-	log.Info("Server shutting down")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	log.Info("Server shutting down...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
-		log.Error("Server shutdown error", zap.Error(err))
+		log.Error("Server forced to shutdown", zap.Error(err))
 	}
 
-	log.Info("Server stopped")
+	log.Info("Server exited")
 }

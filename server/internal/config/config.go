@@ -23,13 +23,16 @@ type Config struct {
 
 // Load 从环境变量加载配置
 func Load() (*Config, error) {
-	// 尝试加载 .env 文件（如果存在）
-	// 按优先级尝试：项目根目录 .env > 当前目录 .env
-	_ = godotenv.Load()
-	_ = godotenv.Load("../../.env")
-
 	// 获取项目根目录
 	projectRoot := findProjectRoot()
+	
+	// 尝试加载 .env 文件（按优先级）
+	// 1. 项目根目录/.env
+	// 2. 当前目录/.env
+	// 3. server/.env
+	_ = godotenv.Load(filepath.Join(projectRoot, ".env"))
+	_ = godotenv.Load()
+	_ = godotenv.Load(filepath.Join(projectRoot, "server/.env"))
 
 	cfg := &Config{
 		Env:       getEnv("ENV", "development"),

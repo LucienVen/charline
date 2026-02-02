@@ -18,6 +18,7 @@ type Client struct {
 	serverURL string          // 服务器 URL
 	userID    int64           // 用户 ID（认证后设置）
 	send      chan []byte     // 发送消息通道
+	authChan  chan Message    // 认证消息通道
 	closeChan chan struct{}   // 关闭信号通道
 	closeOnce sync.Once       // 确保只关闭一次
 	isClosed  bool            // 连接是否已关闭
@@ -30,6 +31,7 @@ func NewClient(serverURL string, signer *auth.Signer) *Client {
 		serverURL: serverURL,
 		signer:    signer,
 		send:      make(chan []byte, 256),
+		authChan:  make(chan Message, 1), // 认证消息通道（缓冲1）
 		closeChan: make(chan struct{}),
 		isClosed:  false,
 	}
@@ -58,16 +60,13 @@ func (c *Client) Connect() error {
 
 // Authenticate 处理认证流程
 func (c *Client) Authenticate() error {
-	// 等待服务器发送 challenge
-	_, data, err := c.conn.ReadMessage()
-	if err != nil {
-		return fmt.Errorf("failed to read challenge: %w", err)
-	}
-
-	// 解析 challenge 消息
+	// 从 authChan 接收 challenge（由 readLoop 发送）
 	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
-		return fmt.Errorf("failed to parse challenge: %w", err)
+	select {
+	case msg = <-c.authChan:
+		// 收到消息
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("等待 challenge 超时")
 	}
 
 	if msg.Type != "challenge_response" {
@@ -108,31 +107,28 @@ func (c *Client) Authenticate() error {
 		return fmt.Errorf("failed to send auth request: %w", err)
 	}
 
-	// 等待认证响应
-	_, respData, err := c.conn.ReadMessage()
-	if err != nil {
-		return fmt.Errorf("failed to read auth response: %w", err)
+	// 从 authChan 接收认证响应
+	select {
+	case msg = <-c.authChan:
+		// 收到响应
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("等待认证响应超时")
 	}
 
-	var respMsg Message
-	if err := json.Unmarshal(respData, &respMsg); err != nil {
-		return fmt.Errorf("failed to parse auth response: %w", err)
-	}
-
-	if respMsg.Type == "error" {
+	if msg.Type == "error" {
 		var errPayload ErrorPayload
-		if err := json.Unmarshal(respMsg.Payload, &errPayload); err != nil {
+		if err := json.Unmarshal(msg.Payload, &errPayload); err != nil {
 			return fmt.Errorf("authentication failed: unknown error")
 		}
 		return fmt.Errorf("authentication failed: %s - %s", errPayload.Code, errPayload.Message)
 	}
 
-	if respMsg.Type != "auth_response" {
-		return fmt.Errorf("unexpected response type: %s", respMsg.Type)
+	if msg.Type != "auth_response" {
+		return fmt.Errorf("unexpected response type: %s", msg.Type)
 	}
 
 	var authResp AuthResponsePayload
-	if err := json.Unmarshal(respMsg.Payload, &authResp); err != nil {
+	if err := json.Unmarshal(msg.Payload, &authResp); err != nil {
 		return fmt.Errorf("failed to parse auth response: %w", err)
 	}
 
@@ -238,16 +234,17 @@ func (c *Client) handleMessage(data []byte) {
 	}
 
 	switch msg.Type {
+	case "challenge_response", "auth_response", "error":
+		// 认证相关消息，发送到 authChan
+		select {
+		case c.authChan <- msg:
+			// 发送成功
+		default:
+			fmt.Printf("Warning: authChan is full, dropping message: %s\n", msg.Type)
+		}
 	case "pong":
 		// 心跳响应
 		fmt.Println("Received pong")
-	case "error":
-		var errPayload ErrorPayload
-		if err := json.Unmarshal(msg.Payload, &errPayload); err != nil {
-			fmt.Printf("Failed to parse error: %v\n", err)
-			return
-		}
-		fmt.Printf("Server error: %s - %s\n", errPayload.Code, errPayload.Message)
 	default:
 		// 其他消息类型
 		fmt.Printf("Received message: %s\n", msg.Type)

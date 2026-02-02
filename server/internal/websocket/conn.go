@@ -4,11 +4,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
 // Connection WebSocket 连接封装
 type Connection struct {
+	id        string           // 连接唯一标识
 	conn      *websocket.Conn // WebSocket 连接
 	userID    int64            // 用户ID（认证后设置）
 	send      chan []byte      // 发送消息通道
@@ -21,12 +23,20 @@ type Connection struct {
 // NewConnection 创建新连接
 func NewConnection(conn *websocket.Conn) *Connection {
 	return &Connection{
+		id:        uuid.New().String(),
 		conn:      conn,
 		userID:    0, // 未认证
 		send:      make(chan []byte, 256),
 		closeChan: make(chan struct{}),
 		isClosed:  false,
 	}
+}
+
+// ID 获取连接ID
+func (c *Connection) ID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.id
 }
 
 // SetUserID 设置用户ID（认证成功后调用）

@@ -35,16 +35,18 @@ type ChallengePayload struct {
 
 // AuthRequestPayload 认证请求载荷
 type AuthRequestPayload struct {
-	PublicKey string `json:"public_key"` // Ed25519 公钥（hex）
-	Signature string `json:"signature"`  // 签名（hex）
-	Nonce     string `json:"nonce"`      // 原始 nonce
+	PublicKey string `json:"public_key"`        // Ed25519 公钥（hex）
+	Signature string `json:"signature"`         // 签名（hex）
+	Nonce     string `json:"nonce"`             // 原始 nonce
+	DeviceID  string `json:"device_id,omitempty"` // 设备标识（可选，用于多设备管理）
 }
 
 // AuthResponsePayload 认证响应载荷
 type AuthResponsePayload struct {
-	Success bool   `json:"success"`          // 是否成功
-	UserID  int64  `json:"user_id,omitempty"` // 用户ID（成功时）
-	Message string `json:"message,omitempty"` // 错误信息（失败时）
+	Success   bool   `json:"success"`            // 是否成功
+	UserID    int64  `json:"user_id,omitempty"`  // 用户ID（成功时）
+	SessionID string `json:"session_id,omitempty"` // Session ID（成功时）
+	Message   string `json:"message,omitempty"`  // 错误信息（失败时）
 }
 
 // ErrorPayload 错误载荷

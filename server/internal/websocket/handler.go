@@ -5,22 +5,30 @@ import (
 	"encoding/hex"
 	"time"
 
+	"github.com/LucienVen/charline/server/internal/session"
 	"github.com/LucienVen/charline/server/internal/store"
 )
 
 // WSMessageHandler WebSocket 消息处理器
 type WSMessageHandler struct {
-	nonceStore *store.NonceStore
-	userStore  *store.UserStore
-	pool       *ConnectionPool
+	nonceStore     *store.NonceStore
+	userStore      *store.UserStore
+	pool           *ConnectionPool
+	sessionManager session.SessionManager
 }
 
 // NewWSMessageHandler 创建消息处理器
-func NewWSMessageHandler(nonceStore *store.NonceStore, userStore *store.UserStore, pool *ConnectionPool) *WSMessageHandler {
+func NewWSMessageHandler(
+	nonceStore *store.NonceStore,
+	userStore *store.UserStore,
+	pool *ConnectionPool,
+	sessionManager session.SessionManager,
+) *WSMessageHandler {
 	return &WSMessageHandler{
-		nonceStore: nonceStore,
-		userStore:  userStore,
-		pool:       pool,
+		nonceStore:     nonceStore,
+		userStore:      userStore,
+		pool:           pool,
+		sessionManager: sessionManager,
 	}
 }
 
@@ -99,10 +107,18 @@ func (h *WSMessageHandler) handleAuthRequest(conn *Connection, msg *Message) {
 	// 将连接添加到连接池
 	h.pool.Add(conn)
 
-	// 发送认证成功响应
+	// 创建 Session（支持多设备）
+	sess, err := h.sessionManager.Create(user.ID, authReq.DeviceID, conn.ID())
+	if err != nil {
+		h.sendError(conn, "SESSION_CREATE_FAILED", "Failed to create session")
+		return
+	}
+
+	// 发送认证成功响应（包含 session_id）
 	authResp := AuthResponsePayload{
-		Success: true,
-		UserID:  user.ID,
+		Success:   true,
+		UserID:    user.ID,
+		SessionID: sess.ID,
 	}
 
 	respMsg, err := NewMessage(MessageTypeAuthResponse, authResp)

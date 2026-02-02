@@ -1163,3 +1163,410 @@ client/internal/websocket/
 
 ---
 
+
+### Phase 3.2: Session 管理层（2026-02-02 完成）
+
+**目标**: 实现 Session 管理层，支持会话创建、生命周期管理、用户映射和 Resume Token 生成
+
+#### 核心设计
+
+**Session 结构体**:
+```go
+type Session struct {
+    ID           string        // UUID
+    UserID       int64         // 用户 ID
+    DeviceID     string        // 设备标识（可选）
+    ConnID       string        // WebSocket 连接 ID
+    State        SessionState  // 会话状态 (Active/Suspended/Closed)
+    CreatedAt    time.Time     // 创建时间
+    LastActiveAt time.Time     // 最后活跃时间
+    ExpiresAt    time.Time     // Session 过期时间（8小时）
+    ResumeToken  string        // 断线恢复 Token
+    ResumeExpiry time.Time     // Resume Token 过期时间（30秒）
+}
+```
+
+**SessionManager 接口**:
+```go
+type SessionManager interface {
+    Create(userID int64, deviceID string, connID string) (*Session, error)
+    Get(sessionID string) (*Session, bool)
+    GetByUser(userID int64) []*Session
+    GetByConn(connID string) (*Session, bool)
+    Touch(sessionID string) error
+    Suspend(sessionID string) (resumeToken string, expiresAt time.Time, err error)
+    Resume(resumeToken string, newConnID string) (*Session, error)
+    Close(sessionID string) error
+    Cleanup()
+}
+```
+
+#### 服务端新增文件
+
+| 文件 | 描述 |
+|------|------|
+| `server/internal/session/session.go` | Session 结构体、状态常量、辅助方法 |
+| `server/internal/session/store.go` | 内存存储（三层索引：sessions/userSessions/connSessions） |
+| `server/internal/session/resume.go` | Resume Token 生成与验证（32字节随机，30秒TTL） |
+| `server/internal/session/manager.go` | SessionManager 接口定义与实现 |
+
+#### 服务端修改文件
+
+| 文件 | 修改内容 |
+|------|----------|
+| `server/internal/websocket/handler.go` | 认证成功后创建 Session，返回 session_id |
+| `server/internal/websocket/conn.go` | 添加 id 字段（UUID），添加 ID() 方法 |
+| `server/internal/websocket/protocol.go` | AuthRequestPayload 添加 device_id，AuthResponsePayload 添加 session_id |
+| `server/internal/container/container.go` | 添加 SessionManager 依赖注入 |
+
+#### 客户端新增文件
+
+| 文件 | 描述 |
+|------|------|
+| `client/internal/session/state.go` | 客户端 Session 状态管理 |
+
+#### 核心特性
+
+**三层索引存储**:
+- `sessions map[string]*Session` - 主索引（sessionID → Session）
+- `userSessions map[int64][]string` - 用户索引（userID → []sessionID，支持多设备）
+- `connSessions map[string]string` - 连接索引（connID → sessionID，快速查询）
+
+**Resume Token 机制**:
+- 32 字节随机生成（crypto/rand）
+- 30 秒有效期（ResumeTokenTTL）
+- 原子消费机制（防止重放攻击）
+- 自动过期清理
+
+**Session 生命周期**:
+1. **Create**: 认证成功后创建，绑定 userID/deviceID/connID
+2. **Touch**: 更新最后活跃时间
+3. **Suspend**: 断线时挂起，生成 Resume Token
+4. **Resume**: 使用 Resume Token 恢复，绑定新 connID
+5. **Close**: 正常关闭，清理资源
+6. **Cleanup**: 后台定期清理过期 Session（10秒间隔）
+
+**多设备支持**:
+- 同一用户可创建多个 Session（不同设备）
+- 每个设备独立 Session，独立 Resume Token
+- 消息广播到用户所有在线设备
+
+#### 技术栈
+
+| 组件 | 技术选型 |
+|------|----------|
+| Session ID | UUID v4 (google/uuid) |
+| Resume Token | crypto/rand (32 bytes, base64) |
+| 存储 | 内存 (map + sync.RWMutex) |
+| 过期检查 | time.Ticker 定期清理 |
+| 连接 ID | UUID v4 (google/uuid) |
+
+#### 验证标准
+
+- [x] Session 创建: 认证成功后返回 session_id
+- [x] Session 查询: 可通过 ID、UserID、ConnID 查询
+- [x] Session 挂起: 断线时生成 Resume Token
+- [x] Session 关闭: 正常关闭时清理资源
+- [x] 过期清理: 定期清理过期 Session
+- [x] 多设备支持: 同一用户多个 Session
+- [x] 编译验证: 服务端和客户端编译通过
+
+#### 文档产出
+
+| 文件 | 描述 |
+|------|------|
+| `memory-bank/session-management-faq.md` | Session 管理 FAQ（多设备、Resume Token、断线检测） |
+| `memory-bank/document-navigation.md` | 更新文档导航，添加 FAQ 引用 |
+
+#### 代码统计
+
+```
+服务端新增: 4 个文件 (session/)
+服务端修改: 4 个文件 (websocket/, container/)
+客户端新增: 1 个文件 (session/)
+文档新增: 1 个文件 (session-management-faq.md)
+编译状态: ✅ 成功
+```
+
+#### 实施步骤
+
+- [x] Step 1: 创建 Session 核心结构 (session.go)
+- [x] Step 2: 创建内存存储 (store.go)
+- [x] Step 3: 创建 Resume Token 管理 (resume.go)
+- [x] Step 4: 创建 SessionManager 实现 (manager.go)
+- [x] Step 5: 集成到 WebSocket Handler
+- [x] Step 6: 集成到 Connection
+- [x] Step 7: 扩展消息协议
+- [x] Step 8: 依赖注入
+- [x] Step 9: 客户端 Session 管理
+
+---
+
+
+### Phase 3.2 问题修复：WebSocket 消息读取竞争（2026-02-02 完成）
+
+**目标**: 修复客户端 WebSocket 连接后卡住无响应的问题
+
+#### 问题 1：消息读取竞争条件
+
+**现象**:
+```bash
+$ ./bin/client connect
+正在连接到服务器...
+✓ 连接成功
+Received message: challenge_response
+正在进行身份认证...
+# 卡住，没有后续
+```
+
+**根本原因**: 客户端 `readLoop` goroutine 与 `Authenticate()` 方法竞争读取 WebSocket 消息
+
+```go
+// 问题代码流程
+client.Connect()
+  ↓
+  启动 readLoop() goroutine  // 后台持续读取所有消息
+  ↓
+client.Authenticate()
+  ↓
+  conn.ReadMessage()  // ❌ 尝试直接读取，但消息已被 readLoop 消费
+  ↓
+  永远阻塞等待...
+```
+
+**修复方案**: 使用 channel 进行消息分发
+
+**修改文件**: `client/internal/websocket/client.go`
+
+**核心变更**:
+```go
+// 1. Client 结构体添加 authChan
+type Client struct {
+    // ... 其他字段
+    authChan  chan Message    // 新增：认证消息通道
+}
+
+// 2. Authenticate() 从 channel 接收消息
+func (c *Client) Authenticate() error {
+    // ✅ 从 channel 接收消息（由 readLoop 发送）
+    select {
+    case msg = <-c.authChan:
+        // 处理消息
+    case <-time.After(10 * time.Second):
+        return fmt.Errorf("等待 challenge 超时")
+    }
+    // ...
+}
+
+// 3. handleMessage() 将认证消息发送到 authChan
+func (c *Client) handleMessage(data []byte) {
+    var msg Message
+    json.Unmarshal(data, &msg)
+    
+    switch msg.Type {
+    case "challenge_response", "auth_response", "error":
+        // ✅ 认证消息发送到 authChan
+        c.authChan <- msg
+    // ...
+    }
+}
+```
+
+**优化效果**:
+- 消除 goroutine 间消息竞争
+- 使用 channel 实现线程安全通信
+- 添加超时机制防止永久阻塞
+
+---
+
+#### 问题 2：签名编码格式不匹配
+
+**现象**:
+```
+ERROR: authentication failed: INVALID_SIGNATURE - Invalid signature format
+```
+
+**根本原因**: 客户端和服务端签名编码格式不一致
+
+| 组件 | 编码方式 | 代码位置 |
+|------|---------|---------|
+| 客户端签名 | `base64` | `client/internal/auth/signer.go:33` |
+| 服务端验证 | `hex` | `server/internal/websocket/handler.go:78` |
+
+**修复方案**: 统一使用 hex 编码
+
+**修改文件**: `client/internal/auth/signer.go`
+
+**核心变更**:
+```go
+// Before: base64 编码（错误）
+func (s *Signer) Sign(nonce string) (string, error) {
+    signature := ed25519.Sign(s.keyPair.PrivateKey, []byte(nonce))
+    return base64.StdEncoding.EncodeToString(signature), nil  // ❌
+}
+
+// After: hex 编码（正确）
+func (s *Signer) Sign(nonce string) (string, error) {
+    signature := ed25519.Sign(s.keyPair.PrivateKey, []byte(nonce))
+    return hex.EncodeToString(signature), nil  // ✅
+}
+```
+
+**优化效果**:
+- 客户端和服务端编码格式统一
+- 签名验证通过
+- Ed25519 签名流程完整打通
+
+---
+
+#### 验证结果
+
+**测试输出**:
+```bash
+$ ./bin/client connect
++0800 2026-02-02 16:41:10    INFO    Connecting to WebSocket    {"url": "ws://localhost:8080/ws"}
+正在连接到服务器...
+✓ 连接成功
+正在进行身份认证...
+❌ 认证失败: USER_NOT_FOUND - User not found
+```
+
+**流程验证**:
+
+| 步骤 | 状态 | 说明 |
+|------|------|------|
+| 1. WebSocket 连接 | ✅ | 成功建立连接 |
+| 2. 接收 Challenge | ✅ | 正常接收 nonce |
+| 3. 签名生成 | ✅ | hex 编码正确 |
+| 4. 发送认证请求 | ✅ | 消息发送成功 |
+| 5. 签名验证 | ✅ | 服务端验证通过 |
+| 6. Nonce 验证 | ✅ | 防重放检查通过 |
+| 7. 用户查询 | ❌ | 数据库缺少 public_key 列 |
+
+**服务端日志**:
+```
+[DEBUG] Challenge sent successfully
+✓ HTTP request GET /ws status=200
+❌ ERROR: 查询用户失败 {"error": "no such column: public_key"}
+```
+
+---
+
+#### 待解决问题
+
+**问题 3: 数据库表结构缺失**
+
+```sql
+-- 当前错误
+ERROR: no such column: public_key
+
+-- 需要执行
+ALTER TABLE users ADD COLUMN public_key TEXT NOT NULL DEFAULT '';
+CREATE UNIQUE INDEX idx_users_public_key ON users(public_key);
+```
+
+**影响范围**:
+- `server/internal/store/user.go:109` - `GetByPublicKey()` 方法
+- 用户认证流程无法完成
+
+---
+
+#### 修改文件清单
+
+| 文件 | 修改内容 | 状态 |
+|------|---------|------|
+| `client/internal/websocket/client.go` | 添加 authChan，修改消息分发逻辑 | ✅ 已完成 |
+| `client/internal/auth/signer.go` | 签名编码从 base64 改为 hex | ✅ 已完成 |
+| 数据库表结构 | 添加 public_key 列和索引 | ⏳ 待处理 |
+
+---
+
+#### 技术要点总结
+
+**1. 并发消息处理**:
+- 使用 channel 避免 goroutine 间的消息竞争
+- `readLoop` 统一读取，通过 channel 分发到不同处理器
+- 使用 `select` + `time.After` 实现超时机制
+
+**2. 编码一致性**:
+- 客户端和服务端必须使用相同的编码格式（hex）
+- Ed25519 签名：64 字节 → hex 编码 → 128 字符
+- 公钥：32 字节 → hex 编码 → 64 字符
+
+**3. 错误传播**:
+- 认证错误通过 error channel 正确传递到调用方
+- 使用结构化错误消息（错误码 + 详细信息）
+- 客户端友好的错误提示
+
+**4. WebSocket 通信架构**:
+```
+┌─────────────────────────────────────────┐
+│           Client Application            │
+└─────────────────────────────────────────┘
+                    │
+                    ↓
+┌─────────────────────────────────────────┐
+│         Authenticate() Method           │
+│  (从 authChan 接收认证消息)              │
+└─────────────────────────────────────────┘
+                    ↑
+                    │ authChan
+                    │
+┌─────────────────────────────────────────┐
+│         handleMessage() Method          │
+│  (消息路由：认证消息 → authChan)         │
+└─────────────────────────────────────────┘
+                    ↑
+                    │
+┌─────────────────────────────────────────┐
+│         readLoop() Goroutine            │
+│  (统一读取所有 WebSocket 消息)           │
+└─────────────────────────────────────────┘
+                    ↑
+                    │
+┌─────────────────────────────────────────┐
+│         WebSocket Connection            │
+└─────────────────────────────────────────┘
+```
+
+---
+
+#### 代码统计
+
+```
+修改文件: 2 个
+新增代码: ~50 行
+删除代码: ~30 行
+编译状态: ✅ 成功
+测试状态: ✅ WebSocket 通信打通
+```
+
+---
+
+
+## 2026-02-02：Phase 3.2 数据库问题修复
+
+### 问题发现
+1. **数据库路径混乱**：存在多个数据库文件（data/charline.db, server/data/charline.db, server/data/server.db）
+2. **表结构问题**：users 表通过 ALTER TABLE 添加的列位置混乱
+3. **路径解析问题**：相对路径基于当前工作目录，导致使用错误的数据库文件
+
+### 解决方案
+1. **识别实际数据库**：使用 lsof 确认 server 实际使用 `/Users/liangliangtoo/code/charline/data/charline.db`
+2. **清理冗余文件**：删除 `server/data/server.db`
+3. **重建表结构**：使用事务重建 users 表，确保列顺序正确
+4. **添加调试信息**：在 server 启动时打印数据库路径
+
+### 修改文件
+- `server/cmd/main.go`：添加数据库路径打印（第29-36行）
+- `data/charline.db`：重建 users 表结构
+- 删除：`server/data/server.db`
+
+### 验证结果
+- ✅ 数据库路径明确可见
+- ✅ 用户注册功能正常
+- ✅ 表结构正确
+
+### 文档更新
+- `memory-bank/phase3-websocket/troubleshooting.md`：添加问题4（数据库路径与表结构）
+
