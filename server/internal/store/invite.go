@@ -116,8 +116,8 @@ func (s *InviteStore) Activate(code, username, publicKey string) (int64, *apperr
 
 	// 1. 创建用户
 	result, err := tx.Exec(
-		"INSERT INTO users (username, public_key, created_at, updated_at) VALUES (?, ?, ?, ?)",
-		username, publicKey, now, now,
+		"INSERT INTO users (username, public_key, created_at) VALUES (?, ?, ?)",
+		username, publicKey, now,
 	)
 	if err != nil {
 		s.logger.Error("创建用户失败",
@@ -152,8 +152,8 @@ func (s *InviteStore) Activate(code, username, publicKey string) (int64, *apperr
 
 	// 3. 更新邀请码使用次数
 	_, err = tx.Exec(
-		"UPDATE invite_codes SET used_count = used_count + 1, updated_at = ? WHERE code = ?",
-		now, code,
+		"UPDATE invite_codes SET used_at = ?, username = ? WHERE code = ?",
+		now, username, code,
 	)
 	if err != nil {
 		s.logger.Error("更新邀请码失败",

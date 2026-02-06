@@ -40,6 +40,7 @@
 | `phase2-1-login-auth.md` | Phase 2.1 实现记录 | claude code | Nonce 签名登录实现与审查 |
 | `websocket-protocol-spec.md` | WebSocket 协议规范 | claude code | WebSocket 消息格式、认证流程、心跳机制 |
 | `session-management-faq.md` | Session 管理 FAQ | claude code | 多设备、Resume Token、断线检测常见问题 |
+| `database-migration-system.md` | 数据库迁移系统 | claude code | SQLite 迁移系统工作原理、使用方法、最佳实践 |
 | `code-optimization-todo.md` | 代码优化待办 | claude code | golangci-lint 检查发现的代码质量问题 |
 | `thinking-challenge/response-to-auth-challenge.md` | IM 架构重整方案 | claude code | 回应 ChatGPT 5.2 挑战，Phase 3 设计方向 |
 
@@ -87,7 +88,8 @@
 | 模块职责发生变化 | `architecture.md` |
 | 新增专题文档 | `document-navigation.md`（本文件） |
 | 发现代码质量问题 | `code-optimization-todo.md` |
+| 数据库结构变更 | `database-migration-system.md`, `architecture.md` |
 
 ---
 
-**最后更新时间**: 2026-02-02
+**最后更新时间**: 2026-02-03
