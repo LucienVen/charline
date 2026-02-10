@@ -37,6 +37,9 @@ func (h *WSMessageHandler) HandleMessage(conn *Connection, msg *Message) {
 	switch msg.Type {
 	case MessageTypeAuthRequest:
 		h.handleAuthRequest(conn, msg)
+	case MessageTypeResumeRequest:
+		h.handleResumeRequest(conn, msg)
+
 	case MessageTypePing:
 		h.handlePing(conn, msg)
 	default:
@@ -114,11 +117,23 @@ func (h *WSMessageHandler) handleAuthRequest(conn *Connection, msg *Message) {
 		return
 	}
 
-	// 发送认证成功响应（包含 session_id）
+	// 设置连接的 Session 信息（用于断线时挂起 Session）
+	conn.SetSessionInfo(sess.ID, h.sessionManager)
+
+	// 生成 Resume Token（用于断线恢复，不改变 Session 状态）
+	resumeToken, resumeExpiry, err := h.sessionManager.GenerateResumeToken(sess.ID)
+	if err != nil {
+		h.sendError(conn, "RESUME_TOKEN_FAILED", "Failed to generate resume token")
+		return
+	}
+
+	// 发送认证成功响应（包含 session_id 和 resume_token）
 	authResp := AuthResponsePayload{
-		Success:   true,
-		UserID:    user.ID,
-		SessionID: sess.ID,
+		Success:      true,
+		UserID:       user.ID,
+		SessionID:    sess.ID,
+		ResumeToken:  resumeToken,
+		ResumeExpiry: resumeExpiry.UnixMilli(),
 	}
 
 	respMsg, err := NewMessage(MessageTypeAuthResponse, authResp)

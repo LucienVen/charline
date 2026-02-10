@@ -7,27 +7,32 @@ import (
 	"time"
 
 	"github.com/LucienVen/charline/client/internal/auth"
+	"github.com/LucienVen/charline/client/internal/session"
 
 	"github.com/gorilla/websocket"
 )
 
 // Client WebSocket 客户端
 type Client struct {
-	conn      *websocket.Conn // WebSocket 连接
-	signer    *auth.Signer    // Ed25519 签名器
-	serverURL string          // 服务器 URL
-	userID    int64           // 用户 ID（认证后设置）
-	send      chan []byte     // 发送消息通道
-	authChan  chan Message    // 认证消息通道
-	closeChan chan struct{}   // 关闭信号通道
-	closeOnce sync.Once       // 确保只关闭一次
-	isClosed  bool            // 连接是否已关闭
-	mu        sync.RWMutex    // 读写锁
+	conn         *websocket.Conn    // WebSocket 连接
+	signer       *auth.Signer       // Ed25519 签名器
+	serverURL    string             // 服务器 URL
+	userID       int64              // 用户 ID（认证后设置）
+	session      *session.State     // Session 状态
+	reconnectMgr *ReconnectManager  // 重连管理器
+	send         chan []byte        // 发送消息通道
+	authChan     chan Message       // 认证消息通道
+	closeChan    chan struct{}      // 关闭信号通道
+	closeOnce    sync.Once          // 确保只关闭一次
+	isClosed     bool               // 连接是否已关闭
+	onDisconnect func()             // 断线回调
+	onReconnect  func(success bool) // 重连回调
+	mu           sync.RWMutex       // 读写锁
 }
 
 // NewClient 创建新客户端
 func NewClient(serverURL string, signer *auth.Signer) *Client {
-	return &Client{
+	c := &Client{
 		serverURL: serverURL,
 		signer:    signer,
 		send:      make(chan []byte, 256),
@@ -35,6 +40,45 @@ func NewClient(serverURL string, signer *auth.Signer) *Client {
 		closeChan: make(chan struct{}),
 		isClosed:  false,
 	}
+	return c
+}
+
+// SetDisconnectCallback 设置断线回调
+func (c *Client) SetDisconnectCallback(callback func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onDisconnect = callback
+}
+
+// SetReconnectCallback 设置重连回调
+func (c *Client) SetReconnectCallback(callback func(success bool)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onReconnect = callback
+}
+
+// GetSession 获取 Session 状态
+func (c *Client) GetSession() *session.State {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.session
+}
+
+// EnableAutoReconnect 启用自动重连
+func (c *Client) EnableAutoReconnect(config *ReconnectConfig) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.session == nil {
+		c.session = &session.State{}
+	}
+
+	c.reconnectMgr = NewReconnectManager(c, c.session, config)
+	c.reconnectMgr.SetCallback(func(success bool, attempt int, err error) {
+		if c.onReconnect != nil {
+			c.onReconnect(success)
+		}
+	})
 }
 
 // Connect 连接到服务器
@@ -137,6 +181,19 @@ func (c *Client) Authenticate() error {
 	}
 
 	c.userID = authResp.UserID
+
+	// 保存 Session 信息和 Resume Token
+	c.mu.Lock()
+	if c.session == nil {
+		c.session = session.NewState(authResp.SessionID, authResp.UserID, "")
+	} else {
+		c.session = session.NewState(authResp.SessionID, authResp.UserID, c.session.GetDeviceID())
+	}
+	if authResp.ResumeToken != "" {
+		c.session.SetResumeToken(authResp.ResumeToken, time.UnixMilli(authResp.ResumeExpiry))
+	}
+	c.mu.Unlock()
+
 	return nil
 }
 
@@ -160,6 +217,13 @@ func (c *Client) Send(data []byte) error {
 // readLoop 读取循环（goroutine）
 func (c *Client) readLoop() {
 	defer func() {
+		// 触发断线回调
+		c.mu.RLock()
+		onDisconnect := c.onDisconnect
+		c.mu.RUnlock()
+		if onDisconnect != nil {
+			onDisconnect()
+		}
 		c.Close()
 	}()
 
@@ -234,15 +298,15 @@ func (c *Client) handleMessage(data []byte) {
 	}
 
 	switch msg.Type {
-	case "challenge_response", "auth_response", "error":
-		// 认证相关消息，发送到 authChan
+	case MessageTypeChallengeResponse, MessageTypeAuthResponse, MessageTypeResumeResponse, MessageTypeError:
+		// 认证/恢复相关消息，发送到 authChan
 		select {
 		case c.authChan <- msg:
 			// 发送成功
 		default:
 			fmt.Printf("Warning: authChan is full, dropping message: %s\n", msg.Type)
 		}
-	case "pong":
+	case MessageTypePong:
 		// 心跳响应
 		fmt.Println("Received pong")
 	default:
@@ -277,4 +341,60 @@ func (c *Client) IsClosed() bool {
 // GetUserID 获取用户 ID
 func (c *Client) GetUserID() int64 {
 	return c.userID
+}
+
+// Resume 使用 Resume Token 恢复 Session
+func (c *Client) Resume(resumeToken string) error {
+	// 构造 Resume 请求
+	resumeReq := ResumeRequestPayload{
+		ResumeToken: resumeToken,
+	}
+
+	resumeMsg, err := NewMessage(MessageTypeResumeRequest, resumeReq)
+	if err != nil {
+		return fmt.Errorf("failed to create resume request: %w", err)
+	}
+
+	resumeData, err := resumeMsg.Marshal()
+	if err != nil {
+		return fmt.Errorf("failed to marshal resume request: %w", err)
+	}
+
+	// 发送 Resume 请求
+	if err := c.Send(resumeData); err != nil {
+		return fmt.Errorf("failed to send resume request: %w", err)
+	}
+
+	// 从 authChan 接收 Resume 响应
+	var msg Message
+	select {
+	case msg = <-c.authChan:
+		// 收到响应
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("等待 Resume 响应超时")
+	}
+
+	if msg.Type == MessageTypeError {
+		var errPayload ErrorPayload
+		if err := json.Unmarshal(msg.Payload, &errPayload); err != nil {
+			return fmt.Errorf("resume failed: unknown error")
+		}
+		return fmt.Errorf("resume failed: %s - %s", errPayload.Code, errPayload.Message)
+	}
+
+	if msg.Type != MessageTypeResumeResponse {
+		return fmt.Errorf("unexpected response type: %s", msg.Type)
+	}
+
+	var resumeResp ResumeResponsePayload
+	if err := json.Unmarshal(msg.Payload, &resumeResp); err != nil {
+		return fmt.Errorf("failed to parse resume response: %w", err)
+	}
+
+	if !resumeResp.Success {
+		return fmt.Errorf("resume failed: %s", resumeResp.Message)
+	}
+
+	c.userID = resumeResp.UserID
+	return nil
 }

@@ -6,18 +6,22 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+
+	"github.com/LucienVen/charline/server/internal/session"
 )
 
 // Connection WebSocket 连接封装
 type Connection struct {
-	id        string           // 连接唯一标识
-	conn      *websocket.Conn // WebSocket 连接
-	userID    int64            // 用户ID（认证后设置）
-	send      chan []byte      // 发送消息通道
-	closeChan chan struct{}    // 关闭信号通道
-	closeOnce sync.Once        // 确保只关闭一次
-	isClosed  bool             // 连接是否已关闭
-	mu        sync.RWMutex     // 读写锁
+	id             string                 // 连接唯一标识
+	conn           *websocket.Conn        // WebSocket 连接
+	userID         int64                  // 用户ID（认证后设置）
+	sessionID      string                 // Session ID（认证后设置）
+	sessionManager session.SessionManager // Session 管理器
+	send           chan []byte            // 发送消息通道
+	closeChan      chan struct{}          // 关闭信号通道
+	closeOnce      sync.Once              // 确保只关闭一次
+	isClosed       bool                   // 连接是否已关闭
+	mu             sync.RWMutex           // 读写锁
 }
 
 // NewConnection 创建新连接
@@ -160,9 +164,14 @@ func (c *Connection) WriteLoop() {
 func (c *Connection) Close() error {
 	c.closeOnce.Do(func() {
 		c.mu.Lock()
+		sessionID := c.sessionID
+		sessionManager := c.sessionManager
 		c.isClosed = true
 		c.mu.Unlock()
-
+		// 如果有关联的 Session，挂起它
+		if sessionID != "" && sessionManager != nil {
+			sessionManager.Suspend(sessionID)
+		}
 		close(c.closeChan)
 		close(c.send)
 		c.conn.Close()
@@ -170,7 +179,6 @@ func (c *Connection) Close() error {
 	return nil
 }
 
-// IsClosed 连接是否已关闭
 func (c *Connection) IsClosed() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

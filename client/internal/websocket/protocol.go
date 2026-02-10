@@ -12,6 +12,10 @@ const (
 	MessageTypeAuthRequest       = "auth_request"       // 客户端发送签名认证
 	MessageTypeAuthResponse      = "auth_response"      // 服务端返回认证结果
 
+	// Resume 相关
+	MessageTypeResumeRequest  = "resume_request"  // 客户端请求恢复会话
+	MessageTypeResumeResponse = "resume_response" // 服务端返回恢复结果
+
 	// 心跳
 	MessageTypePing = "ping"
 	MessageTypePong = "pong"
@@ -22,9 +26,9 @@ const (
 
 // Message WebSocket 消息结构
 type Message struct {
-	Type      string          `json:"type"`                // 消息类型
-	Payload   json.RawMessage `json:"payload"`             // 消息载荷（JSON）
-	Timestamp int64           `json:"timestamp"`           // 时间戳（毫秒）
+	Type      string          `json:"type"`                 // 消息类型
+	Payload   json.RawMessage `json:"payload"`              // 消息载荷（JSON）
+	Timestamp int64           `json:"timestamp"`            // 时间戳（毫秒）
 	RequestID string          `json:"request_id,omitempty"` // 请求ID（可选）
 }
 
@@ -42,12 +46,29 @@ type AuthRequestPayload struct {
 
 // AuthResponsePayload 认证响应载荷
 type AuthResponsePayload struct {
-	Success bool   `json:"success"`          // 是否成功
-	UserID  int64  `json:"user_id,omitempty"` // 用户ID（成功时）
-	Message string `json:"message,omitempty"` // 错误信息（失败时）
+	Success      bool   `json:"success"`                 // 是否成功
+	UserID       int64  `json:"user_id,omitempty"`       // 用户ID（成功时）
+	SessionID    string `json:"session_id,omitempty"`    // Session ID（成功时）
+	ResumeToken  string `json:"resume_token,omitempty"`  // Resume Token（成功时）
+	ResumeExpiry int64  `json:"resume_expiry,omitempty"` // Resume Token 过期时间（Unix毫秒时间戳）
+	Message      string `json:"message,omitempty"`       // 错误信息（失败时）
 }
 
 // ErrorPayload 错误载荷
+// ResumeRequestPayload Resume 请求载荷
+type ResumeRequestPayload struct {
+	ResumeToken string `json:"resume_token"`        // Resume Token
+	DeviceID    string `json:"device_id,omitempty"` // 设备ID（可选）
+}
+
+// ResumeResponsePayload Resume 响应载荷
+type ResumeResponsePayload struct {
+	Success   bool   `json:"success"`              // 是否成功
+	SessionID string `json:"session_id,omitempty"` // Session ID（成功时）
+	UserID    int64  `json:"user_id,omitempty"`    // 用户ID（成功时）
+	Message   string `json:"message,omitempty"`    // 错误信息（失败时）
+}
+
 type ErrorPayload struct {
 	Code    string `json:"code"`    // 错误码
 	Message string `json:"message"` // 错误信息

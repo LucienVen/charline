@@ -1570,3 +1570,138 @@ CREATE UNIQUE INDEX idx_users_public_key ON users(public_key);
 ### 文档更新
 - `memory-bank/phase3-websocket/troubleshooting.md`：添加问题4（数据库路径与表结构）
 
+
+---
+
+### Phase 3.3: 心跳与断线恢复（2026-02-10 完成）
+
+**目标**: 实现完整的断线恢复机制，包括 Resume Token 生成、Session 挂起/恢复、客户端重连管理
+
+#### 服务端修改
+
+| 文件 | 修改内容 |
+|------|----------|
+| `server/internal/websocket/handler.go` | 修复路由问题，添加 `SetSessionInfo` 调用，返回 ResumeToken |
+| `server/internal/websocket/conn.go` | Close() 方法添加 Session 挂起逻辑 |
+| `server/internal/websocket/conn_session.go` | 新增 SetSessionInfo/GetSessionID 方法 |
+| `server/internal/websocket/handler_resume.go` | 新增 handleResumeRequest 处理 |
+| `server/internal/session/manager.go` | 添加 `GenerateResumeToken()` 方法 |
+
+#### 客户端修改
+
+| 文件 | 修改内容 |
+|------|----------|
+| `client/internal/session/state.go` | 添加 ResumeToken 字段和相关方法 |
+| `client/internal/websocket/protocol.go` | 修复结构体格式问题，添加 UserID 字段 |
+| `client/internal/websocket/client.go` | 集成 Session 状态、重连管理器、Resume 方法 |
+| `client/internal/websocket/reconnect.go` | 新建重连管理器（指数退避策略） |
+
+#### 核心功能
+
+**1. Resume Token 机制**:
+- 认证成功后服务端生成 Token 返回给客户端
+- Token 格式：32 字节随机值，Base64 编码
+- 有效期：30 秒（DefaultResumeTTL）
+
+**2. 断线挂起**:
+- 连接断开时 Close() 自动调用 SessionManager.Suspend()
+- Session 状态从 Active 变为 Suspended
+- 生成新的 Resume Token 供客户端使用
+
+**3. 重连管理器**:
+- 支持指数退避重试（默认 5 次，1s-30s 延迟）
+- 优先尝试 Resume Token 恢复
+- Resume 失败后回退到完整认证流程
+- 支持回调通知重连结果
+
+**4. Session 恢复**:
+- 客户端使用 Resume Token 发送 resume_request
+- 服务端验证 Token 并恢复 Session
+- 返回 resume_response 包含 session_id 和 user_id
+
+#### 消息协议扩展
+
+**新增消息类型**:
+- `resume_request` - 客户端请求恢复会话
+- `resume_response` - 服务端返回恢复结果
+
+**AuthResponsePayload 扩展**:
+```go
+type AuthResponsePayload struct {
+    Success      bool   `json:"success"`
+    UserID       int64  `json:"user_id,omitempty"`
+    SessionID    string `json:"session_id,omitempty"`
+    ResumeToken  string `json:"resume_token,omitempty"`   // 新增
+    ResumeExpiry int64  `json:"resume_expiry,omitempty"` // 新增（Unix毫秒）
+    Message      string `json:"message,omitempty"`
+}
+```
+
+#### 重连流程
+
+```
+断线检测
+    ↓
+ReconnectManager.Start()
+    ↓
+检查 Resume Token 是否有效
+    ↓
+┌─────────────────────────────────────┐
+│ 有效：尝试 Resume                    │
+│   1. 建立新 WebSocket 连接           │
+│   2. 发送 resume_request            │
+│   3. 等待 resume_response           │
+│   4. 成功 → 恢复完成                 │
+│   5. 失败 → 回退到完整认证           │
+└─────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────┐
+│ 无效/失败：完整认证                  │
+│   1. 建立新 WebSocket 连接           │
+│   2. 接收 challenge_response        │
+│   3. 发送 auth_request              │
+│   4. 等待 auth_response             │
+│   5. 保存新 Resume Token            │
+└─────────────────────────────────────┘
+```
+
+#### 指数退避策略
+
+```go
+// 延迟计算公式
+delay = baseDelay * 2^(attempt-1)
+delay = min(delay, maxDelay)
+delay = delay + jitter(10%)
+
+// 默认配置
+MaxRetries: 5
+BaseDelay:  1s
+MaxDelay:   30s
+
+// 实际延迟序列
+Attempt 1: ~1s
+Attempt 2: ~2s
+Attempt 3: ~4s
+Attempt 4: ~8s
+Attempt 5: ~16s
+```
+
+#### 验证标准
+
+- [x] 服务端编译通过
+- [x] 客户端编译通过
+- [x] 认证响应包含 ResumeToken
+- [x] 断线时 Session 自动挂起
+- [x] Resume 请求正确路由
+- [x] 重连管理器支持指数退避
+
+#### 代码统计
+
+```
+服务端修改: 5 个文件
+客户端修改: 4 个文件
+新增代码: ~400 行
+编译状态: ✅ 成功
+```
+
+---

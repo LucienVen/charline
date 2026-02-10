@@ -25,6 +25,10 @@ type SessionManager interface {
 	// Touch 更新 Session 最后活跃时间
 	Touch(sessionID string) error
 
+	// GenerateResumeToken 生成 Resume Token（不改变 Session 状态）
+	// 用于认证成功后返回给客户端
+	GenerateResumeToken(sessionID string) (resumeToken string, expiresAt time.Time, err error)
+
 	// Suspend 挂起 Session（断线时调用）
 	// 返回 Resume Token 和过期时间
 	Suspend(sessionID string) (resumeToken string, expiresAt time.Time, err error)
@@ -117,6 +121,32 @@ func (m *Manager) Touch(sessionID string) error {
 	}
 
 	return nil
+}
+
+// GenerateResumeToken 生成 Resume Token（不改变 Session 状态）
+func (m *Manager) GenerateResumeToken(sessionID string) (string, time.Time, error) {
+	// 1. 获取 Session
+	sess, exists := m.sessionStore.Get(sessionID)
+	if !exists {
+		return "", time.Time{}, fmt.Errorf("session %s not found", sessionID)
+	}
+
+	// 2. 检查 Session 状态
+	if !sess.IsActive() {
+		return "", time.Time{}, fmt.Errorf("session %s is not active", sessionID)
+	}
+
+	// 3. 生成 Resume Token（不改变 Session 状态）
+	resumeToken, expiresAt, err := m.resumeTokenStore.Generate(sessionID)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("generate resume token failed: %w", err)
+	}
+
+	m.logger.Info("Resume token generated",
+		zap.String("sessionID", sessionID),
+		zap.Time("expiresAt", expiresAt))
+
+	return resumeToken, expiresAt, nil
 }
 
 // Suspend 挂起 Session（断线时调用）

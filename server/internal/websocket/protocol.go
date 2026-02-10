@@ -12,6 +12,10 @@ const (
 	MessageTypeAuthRequest       = "auth_request"       // 客户端发送签名认证
 	MessageTypeAuthResponse      = "auth_response"      // 服务端返回认证结果
 
+	// 断线恢复
+	MessageTypeResumeRequest  = "resume_request"  // 客户端发送恢复请求
+	MessageTypeResumeResponse = "resume_response" // 服务端返回恢复结果
+
 	// 心跳
 	MessageTypePing = "ping"
 	MessageTypePong = "pong"
@@ -46,10 +50,28 @@ type AuthResponsePayload struct {
 	Success   bool   `json:"success"`            // 是否成功
 	UserID    int64  `json:"user_id,omitempty"`  // 用户ID（成功时）
 	SessionID string `json:"session_id,omitempty"` // Session ID（成功时）
+	ResumeToken  string `json:"resume_token,omitempty"`  // Resume Token（成功时）
+	ResumeExpiry int64  `json:"resume_expiry,omitempty"` // Resume Token 过期时间（Unix毫秒）
 	Message   string `json:"message,omitempty"`  // 错误信息（失败时）
 }
 
 // ErrorPayload 错误载荷
+
+// ResumeRequestPayload 恢复请求载荷
+type ResumeRequestPayload struct {
+	ResumeToken string `json:"resume_token"`        // Resume Token
+	DeviceID    string `json:"device_id,omitempty"` // 设备标识（可选）
+}
+
+// ResumeResponsePayload 恢复响应载荷
+type ResumeResponsePayload struct {
+	Success      bool   `json:"success"`                 // 是否成功
+	SessionID    string `json:"session_id,omitempty"`    // Session ID（成功时）
+	UserID       int64  `json:"user_id,omitempty"`       // 用户ID（成功时）
+	ResumeToken  string `json:"resume_token,omitempty"`  // 新的 Resume Token（成功时）
+	ResumeExpiry int64  `json:"resume_expiry,omitempty"` // 新 Token 过期时间（Unix毫秒）
+	Message      string `json:"message,omitempty"`       // 错误信息（失败时）
+}
 type ErrorPayload struct {
 	Code    string `json:"code"`    // 错误码
 	Message string `json:"message"` // 错误信息
