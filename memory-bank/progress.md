@@ -1705,3 +1705,84 @@ Attempt 5: ~16s
 ```
 
 ---
+
+### Phase 3.3.1: 启用客户端自动重连（2026-02-11 完成）
+
+#### 问题
+Phase 3.3 实现了重连机制，但 `EnableAutoReconnect()` 未在 `connect` 命令中调用，导致：
+- 重连功能未启用
+- Resume Token 未被使用
+- 断线后需要手动重新连接
+
+#### 修复内容
+
+**文件**: `client/internal/commands/connect.go`
+
+1. **启用自动重连**（第 39-43 行）:
+```go
+client.EnableAutoReconnect(&websocket.ReconnectConfig{
+    MaxRetries: 5,
+    BaseDelay:  1 * time.Second,
+    MaxDelay:   30 * time.Second,
+})
+```
+
+2. **设置断线回调**（第 46-48 行）:
+```go
+client.SetDisconnectCallback(func() {
+    fmt.Println("\n⚠️  连接已断开，正在尝试重连...")
+})
+```
+
+3. **设置重连回调**（第 51-57 行）:
+```go
+client.SetReconnectCallback(func(success bool) {
+    if success {
+        fmt.Println("✓ 重连成功")
+    } else {
+        fmt.Println("✗ 重连失败，请手动重新连接")
+    }
+})
+```
+
+4. **用户提示**（第 82 行）:
+```go
+fmt.Println("自动重连已启用 (最多重试 5 次)")
+```
+
+#### 验证
+
+- [x] 客户端编译通过
+- [x] 自动重连在连接前启用
+- [x] 断线/重连回调已设置
+- [x] 用户可见重连状态提示
+
+#### 完整重连流程
+
+```
+用户执行: charline connect
+    ↓
+创建 Client + 启用自动重连
+    ↓
+连接 + 认证成功
+    ↓
+保存 Resume Token (30秒有效)
+    ↓
+[连接断开]
+    ↓
+触发 onDisconnect 回调
+    ↓
+ReconnectManager.Start()
+    ↓
+尝试 Resume Token 恢复 (优先)
+    ↓
+失败则完整重新认证
+    ↓
+最多重试 5 次 (指数退避)
+    ↓
+成功 → 触发 onReconnect(true)
+失败 → 触发 onReconnect(false)
+```
+
+---
+

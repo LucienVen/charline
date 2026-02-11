@@ -35,17 +35,38 @@ func Connect(cfg *ConnectConfig) (*ConnectResult, error) {
 	// 3. 创建 WebSocket 客户端
 	client := websocket.NewClient(cfg.ServerURL, signer)
 
-	// 4. 连接到服务器
+	// 4. 启用自动重连（在连接前配置）
+	client.EnableAutoReconnect(&websocket.ReconnectConfig{
+		MaxRetries: 5,
+		BaseDelay:  1 * time.Second,
+		MaxDelay:   30 * time.Second,
+	})
+
+	// 5. 设置断线回调
+	client.SetDisconnectCallback(func() {
+		fmt.Println("\n⚠️  连接已断开，正在尝试重连...")
+	})
+
+	// 6. 设置重连回调
+	client.SetReconnectCallback(func(success bool) {
+		if success {
+			fmt.Println("✓ 重连成功")
+		} else {
+			fmt.Println("✗ 重连失败，请手动重新连接")
+		}
+	})
+
+	// 7. 连接到服务器
 	fmt.Println("正在连接到服务器...")
 	if err := client.Connect(); err != nil {
 		return nil, fmt.Errorf("连接失败: %w", err)
 	}
 	fmt.Println("✓ 连接成功")
 
-	// 5. 等待一小段时间让 readLoop 启动
+	// 8. 等待一小段时间让 readLoop 启动
 	time.Sleep(100 * time.Millisecond)
 
-	// 6. 执行认证
+	// 9. 执行认证
 	fmt.Println("正在进行身份认证...")
 	if err := client.Authenticate(); err != nil {
 		client.Close()
@@ -53,13 +74,14 @@ func Connect(cfg *ConnectConfig) (*ConnectResult, error) {
 	}
 	fmt.Printf("✓ 认证成功 (用户 ID: %d)\n", client.GetUserID())
 
-	// 7. 保持连接，等待中断信号
+	// 10. 保持连接，等待中断信号
 	fmt.Println("\n已连接到服务器，按 Ctrl+C 断开连接")
+	fmt.Println("自动重连已启用 (最多重试 5 次)")
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	// 8. 关闭连接
+	// 11. 关闭连接
 	fmt.Println("\n正在断开连接...")
 	client.Close()
 	fmt.Println("✓ 已断开连接")
