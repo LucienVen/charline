@@ -221,7 +221,7 @@ internal/
 
 ## 九、默认工作模式
 
-你的工作模式必须是：
+### 你的工作模式必须是：
 
 1. 读文档
 2. 理解架构
@@ -238,14 +238,19 @@ internal/
 
 
 
-请使用 Golang（go/ast、go/parser、go/token、go/format）来修改代码，
-不要使用 sed / awk / python。
+### 请使用 Golang（go/ast、go/parser、go/token、go/format）来修改代码，不要使用 sed / awk / python。
 
 要求：
 1. 以 AST 方式修改，不能做纯字符串替换
 2. 保留原有注释和 gofmt 风格
 3. 只修改我指定的文件和位置
 4. 给出完整、可直接运行的 Go 代码
+
+
+
+### 不允许使用 emoji 表情文字
+
+
 
 ------
 

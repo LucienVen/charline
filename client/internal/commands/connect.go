@@ -44,15 +44,15 @@ func Connect(cfg *ConnectConfig) (*ConnectResult, error) {
 
 	// 5. 设置断线回调
 	client.SetDisconnectCallback(func() {
-		fmt.Println("\n⚠️  连接已断开，正在尝试重连...")
+		fmt.Println("连接已断开，正在尝试重连...")
 	})
 
 	// 6. 设置重连回调
 	client.SetReconnectCallback(func(success bool) {
 		if success {
-			fmt.Println("✓ 重连成功")
+			fmt.Println("重连成功")
 		} else {
-			fmt.Println("✗ 重连失败，请手动重新连接")
+			fmt.Println("重连失败，请手动重新连接")
 		}
 	})
 
